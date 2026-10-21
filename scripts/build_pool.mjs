@@ -632,6 +632,16 @@ export function buildMenu(menu, ans) {
 
       const full = build(slots);
 
+      // 单点：只有主食。
+      //
+      // 这不是"再给一个更便宜的选项"那么简单，它修的是一个被真实数据暴露的死角：
+      // 用户答"不要饮料、不要甜品"时，兜底二件套只剩"主食 + 小食"一条路，
+      // 而这家店小食最低 ¥14.5、主食最低 ¥26 → 组合价被钉死在 ¥41 以上。
+      // 于是预算 ¥40 的客人拿到 44.0 / 41.5 / 40.5 三张卡，全部超支 ¥0.5-4，
+      // 而 ¥29.5 的单点就在菜单上——引擎只是从来没生成过"只点一个堡"这个解。
+      // 铁律不变：便宜的解必须永远在场，选不选是排序的事，生不生成是候选池的事。
+      const solo = build([[main]]);
+
       // 二件套：主食 + 各桶里"主题最优的前几个"（不是只给最便宜的），
       // 这样清爽型能配到玉米杯+美式，而不是被迫配圆筒冰淇淋。
       const twoPiece = [];
@@ -654,7 +664,7 @@ export function buildMenu(menu, ans) {
       if (drinkLite.length) liteTwo.push(...build([[main], drinkLite]));
       if (dessertLite.length) liteTwo.push(...build([[main], dessertLite]));
 
-      return [...full, ...threePiece, ...twoPiece, ...liteTwo];
+      return [...full, ...threePiece, ...twoPiece, ...liteTwo, ...solo];
     };
 
     // 期望的桶数（用于衡量"组合完整度"）
@@ -717,17 +727,34 @@ export function buildMenu(menu, ans) {
      * 由上层文案如实告知用户"稍微超了一点，可以去掉某样"，绝不悄悄超预算。
      */
     const softCap = Number.isFinite(cap) ? cap * (1.3 / 1.1) : Infinity;
+    const userCap = Number.isFinite(ans.budget) ? ans.budget * Math.max(1, ans.people ?? 1) : Infinity;
     const baseline = Number.isFinite(ans.budget) ? ans.budget * Math.max(1, ans.people ?? 1) : 0;
     const spendFloor = baseline * 0.75;
     const topWithin = withinCap.slice().sort((a, b) => b.score - a.score)[0];
     const needStretch = !overBudget && topWithin && topWithin.total < spendFloor;
+
+    /* 兜底优先于拉伸：只要"用户预算内"存在任何组合，就绝不允许输出用户预算外的价。
+     *
+     * 实测踩过的坑（2026-10-21）：素 ¥40 / 不要饮料 / 不要甜品 → 三张卡 44.0 / 41.5 / 40.5
+     * 全部超用户预算，却都标着"预算内"。根因是上面这条拉伸规则——它看到
+     * "合规组合只花 ¥29.5（< 预算 75%）"就伸手进了 softCap（= 预算 × 1.18）的池子，
+     * 而排序第一顺位恰恰是"离 ¥40 最近越好"，于是引擎精准地把三张卡都顶到了 ¥40 出头。
+     * 拉伸的本意是"宁可多花一点也吃像样"，不是"把预算花光"。
+     * 现在加一条铁律：用户预算内只要有解，拉伸候选就再截一次到用户预算。
+     *   —— 只有"用户预算内一个解都没有"（预算真的不够）时，才允许悄悄越过预算，
+     *      且越过的那部分由 makePlan 标成 stretch 如实告知。
+     */
+    const withinUserCap = candidatesForBudget.filter((c) => c.total <= userCap + 0.01);
 
     let pool;
     if (overBudget) {
       pool = candidatesForBudget;
     } else if (needStretch) {
       const stretched = candidatesForBudget.filter((c) => c.total <= softCap);
-      pool = stretched.length ? stretched : withinCap;
+      const target = stretched.length ? stretched : withinCap;
+      // 上面那条铁律：用户预算内还有解，就不许为了"花够钱"而超支
+      pool = withinUserCap.length ? target.filter((c) => c.total <= userCap + 0.01) : target;
+      if (!pool.length) pool = withinCap;
     } else {
       pool = withinCap;
     }
@@ -900,10 +927,23 @@ export function buildMenu(menu, ans) {
     const isValue = results[i].theme === 'value';
     const cheapestOther = Math.min(...results.filter((p, j) => j !== i).map((p) => p.estimateTotal));
     const priceCeiling = isValue ? cheapestOther - 0.01 : Number.POSITIVE_INFINITY;
+
+    /* 换卡还得守"预算合规"这条底线，而且它比上面两条都硬。
+     * 实测（2026-10-21）：预算 ¥35 时性价比卡是 ¥26 的单点麦辣鸡腿汉堡、豪爽卡也是 ¥26，
+     * 两张撞车；去重时给性价比卡换了一个 ¥27 的龙焰鸡腿堡——**主食换了，但组合完全不一样了**，
+     * 于是它比豪爽卡贵了 ¥1，"性价比"当场变成三张里最贵的。这不能忍。
+     *
+     * 正确的做法不是"只允许更便宜"（当性价比卡已经是最便宜的那张时，这条会把去重锁死），
+     * 而是：换完之后**性价比卡依然不得比其它任何一张贵**，
+     * 所以它上面两张卡的价格就是它的天花板。
+     */
+    const rivalCeiling = Math.min(...results.filter((p, j) => j !== i).map((p) => p.estimateTotal)) - 0.01;
     const alt =
       pool
         .filter((c) => !results.some((p, j) => j !== i && sigOfPlan(p) === sigOfPlan({ items: c.combo.map((x) => ({ code: x.item.code, qty: x.qty })) })))
         .filter((c) => c.total <= priceCeiling)
+        // 只修性价比卡：它必须严格低于另外两张，否则"性价比"这个标签就是假的
+        .filter((c) => (isValue ? c.total <= rivalCeiling : true))
         .sort((a, b) => Math.abs(a.total - results[i].estimateTotal) - Math.abs(b.total - results[i].estimateTotal) || b.score - a.score)[0];
     if (alt) {
       results[i] = makePlan(results[i].theme, alt, ans);

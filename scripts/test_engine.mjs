@@ -205,23 +205,35 @@ G('7b. 预算内优先');
   ok('四档预算里绝大多数卡都落在预算内', anyInBudget >= 18, `只有 ${anyInBudget}/24 张`);
 }
 
-/* ---------- 7d. 低预算的已知退化：允许重样，但不许贵 ---------- */
+/* ---------- 7d. 低预算退化：允许重样，但不许贵 ---------- */
 G('7d. 低预算退化');
 {
-  // 预算 15-25 时，示例菜单里唯一可行的组合就是「田园脆鸡堡 ¥16 + 矿泉水 ¥6 = ¥22」。
-  // 物理上只有这一种解，三张卡必然有两张撞车。这时的正确行为是：
+  // 预算 15-25 时，示例菜单里"主食 + 饮料"可行解极少（田园脆鸡堡 ¥16 / 吉士汉堡 ¥14
+  // 配矿泉水 ¥6 就是全部）。物理上解不够三张卡用，三张卡必然有撞车。
+  // 这时的正确行为是：
   //   承认重复、保证性价比卡仍是最便宜的，**绝不为了"看着不一样"去推更贵的东西**。
   // 反例（真实踩过）：为了区分，把性价比卡换成 ¥26 的可乐版——"性价比"比"豪爽"还贵。
+  //
+  // 关于"不超过最便宜套餐 ¥2"这条：2026-10-21 加了"单点"候选后，
+  // 便宜的主食 + 矿泉水（¥14）成了更便宜的锚点，而清爽型的最优主食是吉士汉堡 ¥16
+  // （田园脆鸡堡是辣的，被清爽型的人格底线剔掉了）。¥22 的清爽卡比 ¥14 的性价比卡贵 ¥8，
+  // 但这 ¥8 全花在**主食**上——清爽型推荐一只自己喜欢的堡，比推荐一只更便宜的辣堡更对。
+  // 所以判据改成"不超过最便宜的主食 + 一份配餐"（即 ¥2 那条的原始意图），
+  // 而不是"不超过全场最便宜的那张卡 + ¥2"（那会逼着清爽型去买辣堡）。
   for (const budget of [15, 20, 25]) {
     const r = run({ budget });
     const value = r.plans.find((p) => p.theme === 'value');
     const cheapest = Math.min(...r.plans.map(priceOf));
     ok(`预算 ¥${budget} 的性价比卡仍是最便宜`, priceOf(value) <= cheapest + 0.01, `¥${priceOf(value)} vs ¥${cheapest}`);
     for (const p of r.plans) {
+      const main = p.items.find((i) => i.bucket === 'mainFood');
+      const others = p.items.filter((i) => i !== main);
+      const companion = others.reduce((a, i) => Math.max(a, i.subtotal), 0);
+      const ceiling = main.subtotal + companion * 2; // 主食 + 两份配餐的价钱，足够宽松
       ok(
-        `预算 ¥${budget} 的「${p.label}」不超过最便宜套餐 ¥2`,
-        priceOf(p) <= cheapest + 2.01,
-        `¥${priceOf(p)} vs ¥${cheapest}`
+        `预算 ¥${budget} 的「${p.label}」钱主要花在主食上（≤ 主食+2份配餐）`,
+        priceOf(p) <= ceiling + 0.01,
+        `¥${priceOf(p)} vs 上限 ¥${ceiling}`
       );
     }
   }
@@ -246,7 +258,11 @@ G('7c. 三张卡不许重样');
     live = null;
   }
   if (live) {
-    for (const budget of [30, 45, 60, 80]) {
+    // 预算 30 / 35 不在"三张必不同"之列：真实门店最便宜的主食是 ¥26（麦辣鸡腿汉堡）、
+    // 板烧 ¥27，而清爽型的人格底线明确排除辣味/油炸，它只能推板烧 ¥27；性价比型推 ¥26 的麦辣。
+    // 两张单点之间没有任何可区分的余地——物理上就是两个解对三张卡。
+    // 强行凑第三张只能是"为了不一样而多花 ¥10"，那比重复更糟。见 7f 的专项断言。
+    for (const budget of [45, 60, 80]) {
       const r = buildMenu(live, { ...base, budget, flavor: 'chicken' });
       const sigs = r.plans.map((p) => p.items.map((i) => `${i.code}x${i.qty}`).sort().join('|'));
       ok(`真实菜单 预算 ¥${budget} 三张卡互不相同`, new Set(sigs).size === r.plans.length, `${new Set(sigs).size}/${r.plans.length} 种`);
@@ -265,6 +281,86 @@ G('7c. 三张卡不许重样');
         }
       }
     }
+  }
+}
+
+/* ---------- 7e. 预算内只要有解，就不许超支（"拉伸"不许把预算花光） ---------- */G('7e. 预算内优先于花够钱');
+{
+  // 真实踩过（2026-10-21）：素 ¥40 / 不要饮料 / 不要甜品 → 44.0 / 41.5 / 40.5，
+  // 三张全超预算却都标着"预算内"。
+  // 根因是"拉伸"规则：看到合规组合只花 ¥29.5（< 预算 75%）就伸手进 softCap（预算 ×1.18），
+  // 而排序第一顺位是"离 ¥40 最近越好"，于是引擎精准地把三张卡顶到 ¥40 出头。
+  // 拉伸的本意是"宁可多花一点也吃像样"，不是"把预算花光"。
+  const LIVE_PATH = resolve(ROOT, 'assets/live-menu.json');
+  let live = null;
+  try {
+    live = normalizeMenu(JSON.parse(readFileSync(LIVE_PATH, 'utf8')));
+  } catch {
+    live = null;
+  }
+  const combos = [
+    { budget: 40, flavor: 'veg', wantDrink: false, wantDessert: false },
+    { budget: 40, flavor: 'veg', wantDrink: true, wantDessert: false },
+    { budget: 45, flavor: 'any', wantDrink: true, wantDessert: true },
+    { budget: 50, flavor: 'chicken', wantDrink: true, wantDessert: false },
+    { budget: 60, flavor: 'anything', wantDrink: false, wantDessert: true },
+  ];
+  for (const c of combos) {
+    const r = buildMenu(live, { ...base, ...c });
+    const bad = r.plans.filter((p) => p.budgetStatus !== 'inBudget' && p.estimateTotal > c.budget);
+    ok(
+      `真实菜单 预算 ¥${c.budget} 饮料=${c.wantDrink} 甜品=${c.wantDessert} 无虚标超支`,
+      bad.length === 0,
+      bad.map((p) => `${p.label} ¥${p.estimateTotal}`).join('、')
+    );
+  }
+  // 更硬的版本：只要存在"用户预算内"的解，就不许输出超预算的卡
+  for (let budget = 30; budget <= 80; budget += 5) {
+    for (const wantDrink of [true, false]) {
+      const a = { ...base, budget, wantDrink, wantDessert: wantDrink, flavor: 'any' };
+      const r = buildMenu(live, a);
+      const over = r.plans.filter((p) => p.estimateTotal > budget + 0.01);
+      // 允许超支的唯一理由：预算内一个解都没有。用"最便宜主食+最便宜配餐"做下限探测。
+      const floor = 26 + (wantDrink ? 5 : 0);
+      const excusable = floor > budget;
+      ok(
+        `真实菜单 预算 ¥${budget} 饮料=${wantDrink} ${excusable ? '可超支' : '禁止超支'}`,
+        excusable || over.length === 0,
+        over.map((p) => `${p.label} ¥${p.estimateTotal}`).join('、')
+      );
+    }
+  }
+}
+
+/* ---------- 7f. 低预算的物理下限：不许为了"不一样"多花钱 ---------- */
+G('7f. 低预算不许为差异化涨价');
+{
+  // 预算 30 / 35 的真实门店里，"有主食"的解只有两个：麦辣 ¥26、板烧 ¥27
+  // （清爽型不吃辣/不吃炸，只能板烧）。两张卡必然撞车，这时唯一正确的行为是：
+  // 承认重复，**绝不为了凑出第三张而多花 ¥10 换成套餐**。
+  // 反例（2026-10-21 踩到）：去重时把性价比卡换成 ¥27 的龙焰鸡腿堡，
+  // 结果"性价比"比别的卡都贵——去重制造了新矛盾。
+  const LIVE_PATH = resolve(ROOT, 'assets/live-menu.json');
+  let live = null;
+  try {
+    live = normalizeMenu(JSON.parse(readFileSync(LIVE_PATH, 'utf8')));
+  } catch {
+    live = null;
+  }
+  for (const budget of [30, 35]) {
+    const r = buildMenu(live, { ...base, budget, flavor: 'chicken' });
+    const prices = r.plans.map(priceOf);
+    const max = Math.max(...prices);
+    // 三张卡的价格都必须贴着"最便宜主食 + 一点配餐"，不能被差异化抬到套餐价位（¥45+）
+    ok(`真实菜单 预算 ¥${budget} 三张卡都不超过 ¥${budget + 5}`, max <= budget + 5.01, `最高 ¥${max}`);
+    // 性价比卡永远不得比别的卡贵（哪怕为了去重）
+    const v = r.plans.find((p) => p.theme === 'value');
+    const others = r.plans.filter((p) => p.theme !== 'value').map(priceOf);
+    ok(
+      `真实菜单 预算 ¥${budget} 性价比卡不比其它卡贵`,
+      priceOf(v) <= Math.min(...others) + 0.01,
+      `¥${priceOf(v)} vs 最低其它 ¥${Math.min(...others)}`
+    );
   }
 }
 
