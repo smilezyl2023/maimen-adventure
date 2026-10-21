@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>麦门大冒险 · MaiMen Adventure</title>
+<style>
+  :root{
+    --red:#DA291C; --red-dark:#A81E14; --yellow:#FFC72C; --yellow-soft:#FFE08A;
+    --ink:#1A1512; --ink-soft:#4A3F38; --paper:#FFFBF2; --line:rgba(26,21,18,.12);
+    --shadow:0 10px 30px rgba(26,21,18,.12);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:radial-gradient(1200px 600px at 50% -10%,#FFE9A8 0%,#FFF6DF 42%,#FFFBF2 100%);
+    color:var(--ink); min-height:100%; display:flex; flex-direction:column; align-items:center;
+    padding:24px 16px 64px;
+  }
+  .wrap{width:100%;max-width:760px}
+
+  /* ---------- 顶栏 ---------- */
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.5px}
+  .arch{width:34px;height:34px;border-radius:50% 50% 8px 8px;background:var(--yellow);position:relative;box-shadow:inset 0 -6px 0 rgba(0,0,0,.06)}
+  .arch::after{content:"";position:absolute;inset:9px 9px 0 9px;border-radius:50% 50% 0 0;background:var(--red)}
+  .brand h1{font-size:20px}
+  .brand small{display:block;font-size:11px;font-weight:500;color:var(--ink-soft);letter-spacing:1.6px}
+  .badge{
+    font-size:11px;font-weight:700;padding:6px 11px;border-radius:999px;border:1px solid var(--line);
+    background:#fff;color:var(--ink-soft);display:inline-flex;align-items:center;gap:6px;
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:#2FB344}
+  .badge.sample .dot{background:#E5A100}
+
+  /* ---------- 进度地图 ---------- */
+  .map{display:flex;align-items:center;gap:6px;margin-bottom:20px}
+  .node{flex:1;text-align:center;position:relative}
+  .node .bar{height:5px;border-radius:99px;background:rgba(26,21,18,.1);overflow:hidden}
+  .node .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--yellow),var(--red));transition:width .5s ease}
+  .node.done .bar i{width:100%}
+  .node.current .bar i{width:100%;background:linear-gradient(90deg,var(--red),#FF7A45)}
+  .node span{display:block;margin-top:6px;font-size:10px;color:var(--ink-soft);letter-spacing:.5px}
+  .node.current span{color:var(--red);font-weight:800}
+  .node.done span{color:var(--ink)}
+
+  /* ---------- 卡片 ---------- */
+  .card{
+    background:#fff;border-radius:22px;padding:26px 24px;box-shadow:var(--shadow);
+    border:1px solid rgba(26,21,18,.05);animation:rise .45s cubic-bezier(.2,.8,.2,1);
+  }
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .act{
+    display:inline-block;font-size:11px;font-weight:800;letter-spacing:2px;color:var(--red);
+    background:rgba(218,41,28,.08);padding:5px 10px;border-radius:6px;margin-bottom:14px;
+  }
+  .narr{font-size:15px;line-height:1.85;color:var(--ink-soft);margin-bottom:8px;font-style:italic}
+  .narr strong{color:var(--ink);font-style:normal}
+  .q{font-size:22px;font-weight:800;line-height:1.45;margin:14px 0 20px;letter-spacing:-.3px}
+
+  /* ---------- 选项 ---------- */
+  .opts{display:grid;gap:10px}
+  .opts.two{grid-template-columns:1fr 1fr}
+  .opt{
+    display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
+    padding:14px 16px;border-radius:14px;border:1.5px solid var(--line);background:#fff;
+    font-size:15px;font-weight:600;color:var(--ink);font-family:inherit;
+    transition:all .18s ease;
+  }
+  .opt:hover{border-color:var(--red);background:rgba(218,41,28,.035);transform:translateY(-1px)}
+  .opt .em{
+    flex:0 0 auto;width:30px;height:30px;display:grid;place-items:center;border-radius:9px;
+    font-size:16px;line-height:1;font-family:inherit;
+    background:rgba(218,41,28,.07);color:var(--red);
+  }
+  .opt small{display:block;font-weight:500;font-size:12px;color:var(--ink-soft);margin-top:2px}
+  .opt:active{transform:scale(.985)}
+
+  /* ---------- 解锁横幅 ---------- */
+  .unlock{
+    margin-top:18px;padding:14px 16px;border-radius:14px;display:flex;align-items:center;gap:12px;
+    background:linear-gradient(100deg,rgba(255,199,44,.22),rgba(218,41,28,.1));
+    border:1px dashed rgba(218,41,28,.35);animation:pop .5s cubic-bezier(.2,1.4,.4,1);
+  }
+  @keyframes pop{0%{transform:scale(.92);opacity:0}100%{transform:scale(1);opacity:1}}
+  .unlock .big{font-size:26px}
+  .unlock b{display:block;font-size:15px}
+  .unlock span{font-size:12px;color:var(--ink-soft)}
+
+  /* ---------- 命运菜单卡 ---------- */
+  .plans{display:grid;gap:14px;margin-top:4px}
+  .plan{
+    border:1.5px solid var(--line);border-radius:18px;padding:18px;cursor:pointer;
+    transition:all .2s ease;background:linear-gradient(180deg,#fff,#FFFDF8);position:relative;overflow:hidden;
+  }
+  .plan:hover{border-color:var(--red);transform:translateY(-2px);box-shadow:0 12px 26px rgba(218,41,28,.13)}
+  .plan .head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:4px}
+  .plan h3{font-size:18px;letter-spacing:-.2px}
+  /* 主题徽章：用文字+配色区分三种人格，不依赖 emoji 字体 */
+  .tbadge{
+    display:inline-block;padding:3px 10px;border-radius:999px;font-size:14px;font-weight:800;letter-spacing:.3px;
+  }
+  .t-hearty{background:rgba(218,41,28,.1);color:#B3200F}
+  .t-fresh{background:rgba(47,140,88,.12);color:#1F6B42}
+  .t-value{background:rgba(214,158,0,.16);color:#8A5B00}
+  .plan .price{font-size:20px;font-weight:900;color:var(--red);font-variant-numeric:tabular-nums}
+  .plan .tag{font-size:12px;color:var(--ink-soft);margin-bottom:12px}
+  .plan ul{list-style:none;display:grid;gap:7px;margin-bottom:12px}
+  .plan li{display:flex;justify-content:space-between;font-size:14px;padding-bottom:6px;border-bottom:1px dashed rgba(26,21,18,.08)}
+  .plan li span:last-child{color:var(--ink-soft);font-variant-numeric:tabular-nums}
+  .plan .meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--ink-soft)}
+  .chip{background:rgba(26,21,18,.055);padding:4px 9px;border-radius:99px}
+  .chip.warn{background:rgba(218,41,28,.1);color:var(--red);font-weight:700}
+  .plan .why{font-size:12.5px;color:var(--ink-soft);line-height:1.7;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+
+  /* ---------- 明细 / 结算 ---------- */
+  .bill{background:#FFFBF2;border-radius:14px;padding:16px;margin:14px 0}
+  .bill div{display:flex;justify-content:space-between;font-size:14px;padding:6px 0;color:var(--ink-soft)}
+  .bill div.total{border-top:1px solid var(--line);margin-top:6px;padding-top:12px;font-weight:900;font-size:18px;color:var(--ink)}
+  .bill div.total b{color:var(--red)}
+  .bill .neg{color:#2FB344;font-weight:700}
+
+  .actions{display:flex;gap:10px;margin-top:6px;flex-wrap:wrap}
+  .btn{
+    flex:1;min-width:140px;padding:15px 20px;border-radius:13px;border:none;cursor:pointer;font-family:inherit;
+    font-size:15px;font-weight:800;letter-spacing:.3px;transition:all .18s ease;
+  }
+  .btn.primary{background:var(--red);color:#fff;box-shadow:0 8px 20px rgba(218,41,28,.28)}
+  .btn.primary:hover{background:var(--red-dark);transform:translateY(-1px)}
+  .btn.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line)}
+  .btn.ghost:hover{border-color:var(--ink)}
+  .btn:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+
+  .note{font-size:11.5px;color:var(--ink-soft);line-height:1.7;margin-top:14px;padding:11px 13px;border-radius:10px;background:rgba(26,21,18,.035)}
+  .note b{color:var(--red)}
+
+  footer{margin-top:26px;font-size:11px;color:rgba(26,21,18,.45);text-align:center;line-height:1.8}
+  footer a{color:rgba(26,21,18,.55)}
+
+  @media(max-width:520px){
+    .opts.two{grid-template-columns:1fr}
+    .card{padding:22px 18px}
+    .q{font-size:19px}
+    body{padding:16px 12px 48px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">
+      <div class="arch" aria-hidden="true"></div>
+      <div><h1>麦门大冒险</h1><small>MAIMEN ADVENTURE</small></div>
+    </div>
+    <div class="badge sample" id="dataBadge"><span class="dot"></span><span id="badgeText">SAMPLE · 快照</span></div>
+  </div>
+
+  <div class="map" id="map"></div>
+  <div id="stage"></div>
+
+  <footer>
+    本页面为「麦门大冒险」开源项目演示 · 非麦当劳官方产品<br />
+    演示不接入支付、不收集任何个人信息 · 餐品价格与供应以麦当劳官方渠道为准
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+ * 麦门大冒险 · Demo 引擎
+ * 数据注入点：window.__MCD_DATA__
+ *   结构 = 麦当劳 MCP query-meals 的返回（含 categories[].items[]）
+ *   替换方法见 README「把 Demo 切成实时菜单」一节
+ * 打分逻辑与 scripts/build_pool.mjs 同源，保持"一套规则两处呈现"
+ * ============================================================ */
+
+/* ---------- 1. 内置示例菜单（与 assets/sample-menu.json 一致） ---------- */
+const SAMPLE = {
+  meta: { snapshotDate: "2026-10-21", storeName: "示例门店 · 陆家嘴中心店" },
+  categories: [
+    { name: "汉堡", items: [
+      { code: "M001", name: "巨无霸", price: 23.5, tags: ["牛肉", "招牌"], kcal: 550 },
+      { code: "M002", name: "双层吉士汉堡", price: 20.0, tags: ["牛肉", "大份"], kcal: 450 },
+      { code: "M003", name: "安格斯厚牛堡", price: 35.5, tags: ["牛肉", "新品"], kcal: 680 },
+      { code: "M004", name: "麦辣鸡腿堡", price: 22.5, tags: ["鸡肉", "辣"], kcal: 520 },
+      { code: "M005", name: "板烧鸡腿堡", price: 22.0, tags: ["鸡肉"], kcal: 400 },
+      { code: "M006", name: "奥良烤鸡腿堡", price: 21.5, tags: ["鸡肉"], kcal: 430 },
+      { code: "M007", name: "麦香鱼", price: 18.0, tags: ["鱼"], kcal: 330 },
+      { code: "M008", name: "香辣鸡腿堡", price: 21.0, tags: ["鸡肉", "辣"], kcal: 500 },
+      { code: "M009", name: "田园脆鸡堡", price: 16.0, tags: ["鸡肉", "小份"], kcal: 380 },
+      { code: "M010", name: "蔬菜沙拉卷", price: 17.0, tags: ["蔬菜", "低脂"], kcal: 210 },
+      { code: "M011", name: "吉士汉堡", price: 14.0, tags: ["牛肉", "小份"], kcal: 300 },
+      { code: "M012", name: "深海鳕鱼双层堡", price: 26.0, tags: ["鱼", "双层", "新品"], kcal: 480 }
+    ]},
+    { name: "小食", items: [
+      { code: "S001", name: "薯条(大)", price: 15.0, tags: ["大份"], kcal: 400 },
+      { code: "S002", name: "薯条(中)", price: 12.0, tags: [], kcal: 320 },
+      { code: "S003", name: "薯条(小)", price: 10.0, tags: ["小份"], kcal: 220 },
+      { code: "S004", name: "麦乐鸡(5块)", price: 13.5, tags: ["小份"], kcal: 210 },
+      { code: "S005", name: "麦乐鸡(10块)", price: 23.0, tags: ["大份"], kcal: 420 },
+      { code: "S006", name: "香辣鸡翅(2块)", price: 14.0, tags: ["辣", "鸡肉", "小份"], kcal: 280 },
+      { code: "S007", name: "玉米杯", price: 8.0, tags: ["蔬菜", "低脂", "小份"], kcal: 90 },
+      { code: "S008", name: "蔬菜沙拉", price: 11.0, tags: ["蔬菜", "沙拉", "低脂"], kcal: 80 },
+      { code: "S009", name: "苹果派", price: 9.0, tags: ["小份"], kcal: 250 }
+    ]},
+    { name: "饮料", items: [
+      { code: "D001", name: "可口可乐(中)", price: 10.0, tags: [], kcal: 150 },
+      { code: "D002", name: "可口可乐(大)", price: 12.0, tags: ["大份"], kcal: 210 },
+      { code: "D003", name: "无糖可乐(中)", price: 10.0, tags: ["无糖", "低脂"], kcal: 0 },
+      { code: "D004", name: "雪碧(中)", price: 10.0, tags: [], kcal: 140 },
+      { code: "D005", name: "美式咖啡", price: 12.0, tags: ["无糖", "低脂"], kcal: 5 },
+      { code: "D006", name: "拿铁咖啡", price: 16.0, tags: [], kcal: 130 },
+      { code: "D007", name: "矿泉水", price: 6.0, tags: ["无糖", "低脂"], kcal: 0 },
+      { code: "D008", name: "柠檬红茶", price: 13.0, tags: ["无糖"], kcal: 60 },
+      { code: "D009", name: "橙汁", price: 14.0, tags: [], kcal: 120 }
+    ]},
+    { name: "甜品", items: [
+      { code: "T001", name: "原味甜筒", price: 5.0, tags: ["小份"], kcal: 150 },
+      { code: "T002", name: "巧克力圣代", price: 10.0, tags: [], kcal: 280 },
+      { code: "T003", name: "奥利奥麦旋风", price: 12.0, tags: ["新品"], kcal: 320 },
+      { code: "T004", name: "草莓新地", price: 9.0, tags: [], kcal: 240 }
+    ]}
+  ]
+};
+
+const DATA = window.__MCD_DATA__ || SAMPLE;
+const IS_LIVE = Boolean(window.__MCD_DATA__);
+
+/* ---------- 2. 归一化 + 打标（与 build_pool.mjs 同构） ---------- */
+const BUCKET_KW = {
+  dessert: ["冰淇淋","甜筒","圣代","麦旋风","蛋糕","甜品","新地"],
+  drink: ["可乐","雪碧","咖啡","茶","果汁","奶茶","矿泉水","饮料","美式","拿铁"],
+  side: ["薯条","鸡块","鸡翅","小食","麦乐鸡","玉米","沙拉","派"],
+  mainFood: ["汉堡","堡","卷","饭","鸡排","麦辣","巨无霸","安格斯","奥良","板烧","双层","吉士"]
+};
+const hasAny = (t, ks) => ks.some(k => t.includes(k));
+
+function detectBucket(it) {
+  const cat = String(it.category ?? "").toLowerCase();
+  const t = cat + " " + it.name;
+  for (const b of ["dessert","drink","side","mainFood"]) if (hasAny(t, BUCKET_KW[b])) return b;
+  return null;
+}
+
+const SPICY_KW = ["辣","香辣","麻辣","劲辣"];
+const FLAVOR_KW = { beef:["牛","巨无霸","安格斯","吉士","双层"], chicken:["鸡","麦辣","板烧","奥良"], fish:["鱼","鳕"], veggie:["素","蔬菜","沙拉","玉米"] };
+const LARGE_KW = ["大份","双层","巨无霸","安格斯","加大","超大"];
+const SMALL_KW = ["小份","迷你","小食"];
+const HEALTHY_KW = ["沙拉","蔬菜","玉米","无糖","矿泉","美式","纯茶","低脂","鸡胸"];
+const NOVEL_KW = ["新品","限定","当季","NEW"];
+
+function normalize(raw) {
+  const items = [];
+  for (const c of raw.categories ?? raw.data ?? []) {
+    for (const it of c.items ?? []) {
+      const obj = { ...it, category: c.name };
+      const bucket = detectBucket(obj);
+      if (!bucket || !obj.name) continue;
+      items.push({
+        code: String(obj.code ?? obj.name), name: obj.name, bucket,
+        price: Number(obj.price) > 1000 ? Number(obj.price) / 100 : Number(obj.price) || 0,
+        tags: (obj.tags ?? []).map(t => typeof t === "string" ? t : t?.name ?? ""),
+        kcal: typeof obj.kcal === "number" ? obj.kcal : null,
+        isCombo: /套餐/.test(obj.name), soldOut: obj.status === "SOLD_OUT"
+      });
+    }
+  }
+  const buckets = { mainFood: [], side: [], drink: [], dessert: [] };
+  for (const it of items) if (!it.soldOut) buckets[it.bucket].push(it);
+  return { items, buckets };
+}
+
+const txt = it => it.name + " " + it.tags.join(" ");
+const isSpicy = it => hasAny(txt(it), SPICY_KW);
+const flavorsOf = it => Object.entries(FLAVOR_KW).filter(([, ks]) => hasAny(txt(it), ks)).map(([k]) => k);
+// 份量：tags 优先，热量兜底（真实门店 tags 常为空，只看 tags 会让大小份全变 normal）
+const sizeOf = it => {
+  if (hasAny(txt(it), LARGE_KW)) return "large";
+  if (hasAny(txt(it), SMALL_KW)) return "small";
+  const k = typeof it.kcal === "number" ? it.kcal : 0;
+  const isMain = it.bucket === "mainFood";
+  if (k >= (isMain ? 520 : 380)) return "large";
+  if (k > 0 && k <= (isMain ? 320 : 200)) return "small";
+  return "normal";
+};
+// 堆料程度：双层/厚牛/巨无霸这类"看起来就猛"的，用名字信号兜底
+const richnessOf = it => {
+  let s = 0;
+  if (/双层|巨无霸|厚牛|安格斯|三层|加大/.test(txt(it))) s += 2;
+  if (/牛|培根|芝士|吉士/.test(txt(it))) s += 1;
+  return s;
+};
+const isHealthy = it => hasAny(txt(it), HEALTHY_KW);
+const isNovel = it => hasAny(txt(it), NOVEL_KW);
+
+/* ---------- 3. 打分（与 scoring-rules.md 对应） ---------- */
+function scoreItem(it, a, ctx) {
+  const budget = a.budget;
+  let budgetFit;
+  if (!isFinite(budget)) budgetFit = 25;
+  else if (it.price <= budget) budgetFit = 12.5 + 12.5 * (1 - it.price / (budget * 2));
+  else if (it.price <= budget * 1.2) budgetFit = 10;
+  else budgetFit = 0;
+
+  let flavorFit = 5;
+  if (a.flavor === "any") flavorFit = 20;
+  else if (flavorsOf(it).includes(a.flavor)) flavorFit = 25;
+
+  const spicy = isSpicy(it);
+  let spiceFit = spicy ? 6 : 15;
+  if (a.spice === "mild") spiceFit = spicy ? 12 : 10;
+  else if (a.spice === "hot") spiceFit = spicy ? 15 : 6;
+
+  const size = sizeOf(it);
+  let fullnessFit = 15;
+  if (a.hunger === "light") fullnessFit = size === "large" ? 6 : 15;
+  else if (a.hunger === "heavy") fullnessFit = size === "large" ? 15 : size === "normal" ? 10 : 5;
+
+  let healthFit = 5;
+  if (a.careCalories && it.kcal && ctx.minKcal) healthFit = Math.max(0, Math.min(10, 10 * ctx.minKcal / it.kcal));
+  else if (a.careCalories) healthFit = isHealthy(it) ? 9 : 4;
+
+  return { budgetFit, flavorFit, spiceFit, fullnessFit, healthFit, novelty: isNovel(it) ? 10 : 5 };
+}
+
+function themeScore(it, theme, a, ctx) {
+  const d = scoreItem(it, a, ctx);
+  const priceRatio = 1 - it.price / (ctx.maxPrice || Math.max(it.price, 1));
+  const isMain = it.bucket === "mainFood";
+  const size = sizeOf(it);
+  const kcal = it.kcal ?? 0;
+
+  if (theme === "hearty") {
+    // 豪爽：只看"够不够猛"，份量 + 绝对热量 + 堆料程度三信号叠加
+    const big = size === "large" ? 34 : size === "small" ? -30 : 0;
+    const kcalBoost = kcal ? Math.min(26, kcal / 26) : 0;
+    return 0.3 * d.budgetFit + big + kcalBoost + (isMain ? richnessOf(it) * 4 : 0);
+  }
+  if (theme === "fresh") {
+    // 清爽：轻负担优先，蔬果/无糖类给正向加成
+    const fried = hasAny(txt(it), ["薯条", "炸", "鸡块", "鸡翅", "麦辣"]) ? 30 : 0;
+    const sp = isSpicy(it) ? 22 : 0;
+    const kp = kcal ? Math.min(28, kcal / 30) : 10;
+    return 0.3 * d.budgetFit + (isHealthy(it) ? 22 : 0) - fried - sp - kp;
+  }
+  // 性价比：便宜是入场券，"同样价钱给得更多"才是真义
+  const valueRatio = (kcal && it.price > 0) ? Math.min(3, kcal / it.price) : 0;
+  return 0.45 * d.budgetFit + priceRatio * 22 + valueRatio * 9;
+}
+
+const THEMES = [
+  { key:"hearty", emoji:"", icon:"豪爽", label:"豪爽型", tagline:"来都来了，吃个痛快" },
+  { key:"fresh",  emoji:"", icon:"清爽", label:"清爽型", tagline:"想吃，但不想有负担" },
+  { key:"value",  emoji:"", icon:"性价比", label:"性价比型", tagline:"每一分钱都要花在刀刃上" }
+];
+
+function qtyFor(b, a) {
+  const p = Math.max(1, a.people);
+  if (b === "mainFood") return a.hunger === "heavy" ? Math.ceil(p * 1.5) : p;
+  if (b === "side") return p;
+  if (b === "drink") return a.wantDrink ? p : 0;
+  if (b === "dessert") return a.wantDessert ? p : 0;
+  return p;
+}
+
+function cartesian(arrs) {
+  return arrs.reduce((acc, arr) => acc.flatMap(a => arr.map(b => [...a, b])), [[]]);
+}
+
+/* ---------- 4. 主算法（与 build_pool.mjs 对齐） ---------- */
+function buildPlans(menu, a) {
+  const b = menu.buckets;
+  const kcalList = menu.items.filter(i => i.kcal).map(i => i.kcal);
+  const ctx = { minKcal: kcalList.length ? Math.min(...kcalList) : null, maxPrice: Math.max(...menu.items.map(i => i.price), 1) };
+
+  // 用户偏好硬过滤
+  const pref = (list) => {
+    let out = list;
+    if (a.spice === "none") { const ns = out.filter(i => !isSpicy(i)); if (ns.length) out = ns; }
+    if (a.flavor !== "any") {
+      const mains = out.filter(i => i.bucket === "mainFood");
+      if (mains.length) {
+        const keep = new Set(mains.filter(i => flavorsOf(i).includes(a.flavor)).map(i => i.code));
+        if (keep.size) out = out.filter(i => i.bucket !== "mainFood" || keep.has(i.code));
+      }
+    }
+    return out;
+  };
+
+  const prepared = {
+    mainFood: pref(b.mainFood).length ? pref(b.mainFood) : b.mainFood,
+    side: pref(b.side).length ? pref(b.side) : b.side,
+    drink: pref(b.drink).length ? pref(b.drink) : b.drink,
+    dessert: pref(b.dessert).length ? pref(b.dessert) : b.dessert
+  };
+  const stats = Object.fromEntries(Object.entries(prepared).map(([k, v]) => [k, v.length]));
+
+  const cap = isFinite(a.budget) ? a.budget * Math.max(1, a.people) * 1.1 : Infinity;
+  const usedMain = new Set(), usedSig = new Set();
+  const plans = [];
+
+  for (const theme of THEMES) {
+    // 主题主食池：清爽型逐层收紧（不辣 → 非油炸 → 低热量），每层非空才采纳
+    let pool = prepared.mainFood;
+    if (theme.key === "fresh") {
+      const ns = pool.filter(i => !isSpicy(i)); if (ns.length) pool = ns;
+      const nf = pool.filter(i => !hasAny(txt(i), ["薯条", "炸", "鸡块", "鸡翅", "麦辣"])); if (nf.length) pool = nf;
+      const withK = pool.filter(i => typeof i.kcal === "number" && i.kcal > 0);
+      if (withK.length >= 2) {
+        const sorted = withK.map(i => i.kcal).sort((x, y) => x - y);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        const lighter = pool.filter(i => !(typeof i.kcal === "number" && i.kcal > median));
+        if (lighter.length) pool = lighter;
+      }
+    }
+    let ranked = pool.map(i => ({ item: i, score: themeScore(i, theme.key, a, ctx) }))
+                     .sort((x, y) => y.score - x.score);
+    if (!ranked.length) continue;
+
+    // 去重优先，但预算合规更优先
+    let cands = ranked.filter(r => !usedMain.has(r.item.code));
+    if (!cands.length) cands = ranked;
+    cands = cands.slice(0, 5);
+
+    const pickBucket = (name) => {
+      if (!prepared[name].length || qtyFor(name, a) === 0) return [];
+      const scored = prepared[name].map(i => ({ item: i, score: themeScore(i, theme.key, a, ctx) }));
+      const byScore = scored.slice().sort((x, y) => y.score - x.score).slice(0, 3);
+      const byPrice = scored.slice().sort((x, y) => x.item.price - y.item.price).slice(0, 3);
+      const m = new Map(); [...byScore, ...byPrice].forEach(s => m.set(s.item.code, s));
+      return [...m.values()];
+    };
+    const sidePool = pickBucket("side");
+    const drinkPool = pickBucket("drink");
+    const dessertPool = pickBucket("dessert");
+
+    // 降级用：各桶最便宜的一款（"用户要饮料但预算放不下"时，宁可给主食+小食）
+    const cheapestOf = (name) => {
+      if (!prepared[name].length || qtyFor(name, a) === 0) return [];
+      const it = prepared[name].slice().sort((x, y) => x.price - y.price)[0];
+      return [{ item: it, score: themeScore(it, theme.key, a, ctx) }];
+    };
+    const sideLite = cheapestOf("side");
+    const drinkLite = cheapestOf("drink");
+    const dessertLite = cheapestOf("dessert");
+
+    const build = (slots) => cartesian(slots).map(arr => {
+      const combo = arr.map(c => ({ ...c, qty: qtyFor(c.item.bucket, a) }));
+      const total = combo.reduce((s, c) => s + c.item.price * c.qty, 0);
+      const buckets = new Set(combo.map(c => c.item.bucket)).size;
+      const avg = combo.reduce((s, c) => s + c.score, 0) / combo.length;
+      const fill = isFinite(a.budget) ? Math.min(1, total / (a.budget * Math.max(1, a.people))) : .6;
+      return { combo, total, buckets, score: avg + (buckets - 1) * 4 + fill * 4 };
+    });
+
+    const combosFor = (main) => {
+      const slots = [[main]];
+      if (!main.item.isCombo && sidePool.length) slots.push(sidePool);
+      if (drinkPool.length) slots.push(drinkPool);
+      if (dessertPool.length) slots.push(dessertPool);
+      const full = build(slots);
+
+      // 预算紧（主食吃掉 70% 以上额度）时补上"三件套 / 两件套"，避免被迫把预算全砸在饮料上
+      const mainPrice = main.item.price * qtyFor("mainFood", a);
+      const tight = isFinite(cap) && mainPrice > cap * 0.7;
+      if (!tight) return full;
+
+      const available = [];
+      if (!main.item.isCombo) available.push(sidePool.length ? sidePool : sideLite);
+      if (drinkPool.length) available.push(drinkPool);
+      if (dessertPool.length) available.push(dessertPool);
+
+      const three = available.length >= 2 ? build([[main], available[0], available[1]]) : [];
+      const two = [];
+      if (!main.item.isCombo && sideLite.length) two.push(...build([[main], sideLite]));
+      if (drinkLite.length) two.push(...build([[main], drinkLite]));
+      if (dessertLite.length) two.push(...build([[main], dessertLite]));
+      return [...full, ...three, ...two];
+    };
+
+    let all = cands.flatMap(m => combosFor(m));
+    if (!all.some(c => c.total <= cap)) {
+      const fb = ranked.slice(0, 8).flatMap(m => combosFor(m));
+      if (fb.some(c => c.total <= cap)) all = fb;
+
+      // 仍然全部超预算：截断掉"离谱的贵"，别给一份 ¥62 的套餐却只报了 15 块预算
+      const cheapestMain = ranked.reduce((min, m) => Math.min(min, m.item.price), Number.POSITIVE_INFINITY);
+      const saneCeil = cheapestMain + Math.max(20, (isFinite(a.budget) ? a.budget : 30) * 0.5);
+      const sane = all.filter(c => c.combo[0].item.price <= saneCeil);
+      if (sane.length) all = sane;
+    }
+    const within = all.filter(c => c.total <= cap);
+    const over = within.length === 0;
+    const list = (over ? all : within).sort((x, y) => {
+      if (over) {
+        const base = isFinite(a.budget) ? a.budget * Math.max(1, a.people) : 0;
+        return Math.abs(x.total - base) - Math.abs(y.total - base);
+      }
+      return y.score - x.score;
+    });
+
+    const sig = c => c.combo.map(x => x.item.code + "x" + x.qty).sort().join("|");
+    const top = list[0];
+    if (!top) continue;
+    const near = list.filter(c => top.score - c.score <= 10);
+    let chosen = near.find(c => !usedMain.has(c.combo[0].item.code) && !usedSig.has(sig(c)))
+              ?? near.find(c => !usedSig.has(sig(c))) ?? top;
+
+    // 诚实优先：差异化不该以超预算为代价
+    const userBudget = isFinite(a.budget) ? a.budget * Math.max(1, a.people) : Infinity;
+    if (chosen !== top && chosen.total > userBudget && top.total <= userBudget) chosen = top;
+
+    usedMain.add(chosen.combo[0].item.code);
+    usedSig.add(sig(chosen));
+
+    const kcalKnown = chosen.combo.filter(c => typeof c.item.kcal === "number");
+    const overCap = chosen.total > userBudget + 0.01;
+    const overAmount = overCap ? Math.round((chosen.total - userBudget) * 100) / 100 : 0;
+    plans.push({
+      theme: theme.key, emoji: theme.emoji, icon: theme.icon, label: theme.label, tagline: theme.tagline,
+      items: chosen.combo.map(c => ({ name: c.item.name, bucket: c.item.bucket, qty: c.qty, price: c.item.price, kcal: c.item.kcal })),
+      total: chosen.total,
+      kcal: kcalKnown.length ? kcalKnown.reduce((s, c) => s + c.item.kcal * c.qty, 0) : null,
+      complete: kcalKnown.length === chosen.combo.length,
+      overBudget: over,
+      budgetCap: isFinite(userBudget) ? userBudget : null,
+      budgetStatus: over ? "overAll" : overCap ? "stretch" : "inBudget",
+      overAmount,
+      note: over ? `预算不够（超 ¥${overAmount}）` : overCap ? `略超预算 ¥${overAmount}` : "预算内"
+    });
+  }
+  return { plans, stats };
+}
+
+/* ---------- 5. 剧情脚本 ---------- */
+const ACTS = [
+  { id: "prologue", name: "序章 · 召唤" },
+  { id: "act1", name: "第一幕 · 试炼" },
+  { id: "act2", name: "第二幕 · 神殿" },
+  { id: "act3", name: "第三幕 · 同行" },
+  { id: "boss", name: "BOSS · 定餐" }
+];
+
+const state = {
+  step: 0,
+  answers: { budget: 30, hunger: "normal", flavor: "any", spice: "mild", people: 1, wantDrink: true, wantDessert: false, careCalories: false },
+  menu: null, plans: [], chosen: null
+};
+
+/* ---------- 6. 渲染 ---------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+function renderMap() {
+  $("map").innerHTML = ACTS.map((a, i) => {
+    const cls = i < state.step ? "done" : i === state.step ? "current" : "";
+    return `<div class="node ${cls}"><div class="bar"><i></i></div><span>${a.name.split(" · ")[0]}</span></div>`;
+  }).join("");
+}
+
+function opt(label, sub, emoji, fn, key) {
+  const el = document.createElement("button");
+  el.className = "opt";
+  el.innerHTML = `<span class="em">${emoji}</span><span>${label}${sub ? `<small>${sub}</small>` : ""}</span>`;
+  el.onclick = () => fn(key);
+  return el;
+}
+
+function render() {
+  renderMap();
+  const stage = $("stage");
+  stage.innerHTML = "";
+  const mk = (html) => { const d = document.createElement("div"); d.className = "card"; d.innerHTML = html; return d; };
+
+  /* --- 序章 --- */
+  if (state.step === 0) {
+    const c = mk(`
+      <div class="act">序章 · 麦门召唤</div>
+      <p class="narr">傍晚的风里飘来一股<strong>薯条香</strong>。<br/>跟着走，前面有一扇门，上面写着两个字——<strong>麦门</strong>。</p>
+      <div class="q">守卫拦下你：「先说说，你今天愿意为这一餐付多少？」</div>
+      <div class="opts two" id="o1"></div>
+      <div class="note">💡 本演示使用 <b>${IS_LIVE ? "实时注入菜单" : "示例菜单快照（" + (DATA.meta?.snapshotDate ?? "—") + "）"}</b>。真实使用时，菜单来自你附近门店的实时数据。</div>
+    `);
+    stage.appendChild(c);
+    const box = c.querySelector("#o1");
+    [["20 元以内","能吃饱就行","¥",20],["30 元左右","一份套餐的钱","¥¥",30],["50 元上下","想吃点好的","¥¥¥",50],["不限","今天不管了","∞",Infinity]]
+      .forEach(([l, s, e, v]) => box.appendChild(opt(l, s, e, () => { state.answers.budget = v; state.step = 1; render(); })));
+    return;
+  }
+
+  /* --- 第一幕：饥饿度 --- */
+  if (state.step === 1) {
+    const c = mk(`
+      <div class="act">第一幕 · 补给试炼</div>
+      <p class="narr">守卫侧身，让出一道石阶：「那再告诉我——你<strong>饿到什么程度</strong>？」</p>
+      <div class="q">今天的饥饿值？</div>
+      <div class="opts" id="o1"></div>
+    `);
+    stage.appendChild(c);
+    const box = c.querySelector("#o1");
+    [["只是嘴馋","刚吃过没多久","🍪","light"],["正常一顿","该吃饭了","🍱","normal"],["饿到能吞下一头牛","今天没吃东西","🐂","heavy"]]
+      .forEach(([l, s, e, v]) => box.appendChild(opt(l, s, e, () => { state.answers.hunger = v; state.step = 2; render(); })));
+    return;
+  }
+
+  /* --- 第二幕：风味 + 辣度 --- */
+  if (state.step === 2) {
+    const c = mk(`
+      <div class="act">第二幕 · 风味神殿</div>
+      <p class="narr">神殿里有四座雕像：<strong>炙烤的牛</strong>、<strong>酥脆的鸡</strong>、<strong>深海的鱼</strong>、<strong>安静的素</strong>。</p>
+      <div class="q">你的手，会停在哪一座前面？</div>
+      <div class="opts two" id="o1"></div>
+    `);
+    stage.appendChild(c);
+    const box = c.querySelector("#o1");
+    [["炙烤牛派","牛肉的焦香","🐂","beef"],["酥脆鸡派","外皮那声脆响","🍗","chicken"],["深海鱼派","轻盈一点","🐟","fish"],["素心派","今天吃点素的","🥬","veggie"],["随缘","我有选择困难","🎲","any"]]
+      .forEach(([l, s, e, v]) => box.appendChild(opt(l, s, e, () => { state.answers.flavor = v; state.step = 3; render(); })));
+    return;
+  }
+
+  /* --- 第二幕续：辣度 --- */
+  if (state.step === 3) {
+    const c = mk(`
+      <div class="act">第二幕 · 风味神殿</div>
+      <p class="narr">雕像缓缓转动，石台上浮现出一道考验。</p>
+      <div class="q">辣度试炼——你接得住吗？</div>
+      <div class="opts" id="o1"></div>
+    `);
+    stage.appendChild(c);
+    const box = c.querySelector("#o1");
+    [["一点辣都不行","🌶️","none"],["微辣刚好","🌶️🌶️","mild"],["越辣越好","🌶️🌶️🌶️","hot"]]
+      .forEach(([l, e, v]) => box.appendChild(opt(l, v === "none" ? "清爽到底" : v === "hot" ? "无辣不欢" : "刚刚好的刺激", e,
+        () => { state.answers.spice = v; state.step = 4; render(); })));
+    return;
+  }
+
+  /* --- 第三幕：人数 + 甜饮 --- */
+  if (state.step === 4) {
+    const c = mk(`
+      <div class="act">第三幕 · 同行之约</div>
+      <p class="narr">走廊尽头坐着一个人影：「你是一个人，还是有人同行？」</p>
+      <div class="q">今天几个人吃？</div>
+      <div class="opts" id="o1"></div>
+    `);
+    stage.appendChild(c);
+    const box = c.querySelector("#o1");
+    [[1,"就我一个","🧍"],[2,"两个人","👥"],[3,"三个人","👨‍👩‍👦"],[4,"四个人以上","🎉"]]
+      .forEach(([n, l, e]) => box.appendChild(opt(l, `${n} 人份`, e, () => { state.answers.people = n; state.step = 5; render(); })));
+    return;
+  }
+
+  /* --- 第三幕续：甜饮 --- */
+  if (state.step === 5) {
+    const c = mk(`
+      <div class="act">第三幕 · 同行之约</div>
+      <p class="narr">「最后两件事——」人影伸出两根手指。</p>
+      <div class="q">要不要配饮料和甜品？</div>
+      <div class="opts two" id="o1"></div>
+    `);
+    stage.appendChild(c);
+    const box = c.querySelector("#o1");
+    [["全都要","饮料 + 甜品","🍦",true,true],["只要饮料","解渴就够了","🥤",true,false],["只要甜品","饭后来一口","🍰",false,true],["都不要","纯干饭","🍔",false,false]]
+      .forEach(([l, s, e, d, de]) => box.appendChild(opt(l, s, e, () => {
+        state.answers.wantDrink = d; state.answers.wantDessert = de; state.step = 6; render();
+      })));
+    return;
+  }
+
+  /* --- BOSS：揭晓 --- */
+  if (state.step === 6) {
+    const menu = normalize(DATA);
+    state.menu = menu;
+    const { plans } = buildPlans(menu, state.answers);
+    state.plans = plans;
+    state.step = 7;
+    render();
+    return;
+  }
+
+  if (state.step === 7) renderPlans();
+  else if (state.step === 8) renderCheckout();
+}
+
+function renderPlans() {
+  const { plans } = state;
+  const a = state.answers;
+  const stage = $("stage");
+  stage.innerHTML = "";
+
+  const meta = [
+    `人均 ¥${isFinite(a.budget) ? a.budget : "不限"}`,
+    `${a.people} 人`,
+    a.flavor === "any" ? "口味随缘" : { beef: "牛肉派", chicken: "鸡肉派", fish: "鱼类派", veggie: "素食派" }[a.flavor],
+    a.spice === "none" ? "不辣" : a.spice === "hot" ? "重辣" : "微辣"
+  ].map(m => `<span class="chip">${m}</span>`).join("");
+
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <div class="act">BOSS · 今日菜单揭晓</div>
+    <p class="narr">三扇门同时打开。门后是三份不同的<strong>今日菜单</strong>——只能选一份。</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 16px">${meta}</div>
+    <div class="plans" id="plans"></div>
+    <div class="note">所有餐品均来自菜单数据，未做任何虚构。热量为参考值，<b>不构成营养建议</b>。</div>
+  `;
+  stage.appendChild(card);
+  const box = card.querySelector("#plans");
+
+  plans.forEach((p, i) => {
+    const el = document.createElement("div");
+    el.className = "plan";
+    const items = p.items.map(it => `<li><span>${esc(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ""}</span><span>¥${(it.price * it.qty).toFixed(1)}</span></li>`).join("");
+    const chips = [
+      p.kcal ? `<span class="chip">约 ${p.kcal} kcal${p.complete ? "" : "（部分缺数据）"}</span>` : `<span class="chip">热量数据暂缺</span>`,
+      p.budgetStatus === "inBudget"
+        ? `<span class="chip">预算内</span>`
+        : `<span class="chip warn">${esc(p.note)}</span>`
+    ].join("");
+    el.innerHTML = `
+      <div class="head"><h3><span class="tbadge t-${p.theme}">${p.label}</span></h3><div class="price">¥${p.total.toFixed(1)}</div></div>
+      <div class="tag">${p.tagline}</div>
+      <ul>${items}</ul>
+      <div class="meta">${chips}</div>
+      <div class="why">${whyText(p)}</div>
+    `;
+    el.onclick = () => { state.chosen = p; state.step = 8; render(); };
+    box.appendChild(el);
+  });
+}
+
+function whyText(p) {
+  const names = p.items.map(i => i.name);
+  if (p.theme === "hearty") return `${names[0]} 打头，配 ${names.slice(1).join("、") || "单点"}，饱腹感拉满；饿了就别客气。`;
+  if (p.theme === "fresh") return `${names[0]} 为主，配 ${names.slice(1).join("、") || "单点"}，整体更轻盈，吃完不犯困。`;
+  const tail = p.budgetStatus === "inBudget" ? "预算内吃得体面。" : `${esc(p.note)}，可以先去掉一样再说。`;
+  return `${names.join(" + ")}，同样的钱换到更多分量；${tail}`;
+}
+
+function renderCheckout() {
+  const p = state.chosen;
+  const stage = $("stage");
+  stage.innerHTML = "";
+  const card = document.createElement("div");
+  card.className = "card";
+  const rows = p.items.map(it => `<div><span>${esc(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ""}</span><span>¥${(it.price * it.qty).toFixed(1)}</span></div>`).join("");
+  card.innerHTML = `
+    <div class="act">BOSS · 结算</div>
+    <p class="narr">门锁上了。现在只差最后一步——<strong>确认这顿饭</strong>，还是回头看看？</p>
+    <div class="q" style="font-size:18px;margin-bottom:4px"><span class="tbadge t-${p.theme}">${p.label}</span> · ${p.tagline}</div>
+    <div class="bill">
+      ${rows}
+      <div class="total"><span>预估合计</span><b>¥${p.total.toFixed(1)}</b></div>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" id="back">← 换一份</button>
+      <button class="btn primary" id="confirm">确认下单</button>
+    </div>
+    <div class="note">
+      ⚠️ <b>演示模式不下单</b>。真实使用时，此处会调用 MCP <code>calculate-price</code> 展示官方价格明细，
+      经你二次确认后才调用 <code>create-order</code>，并返回<b>麦当劳官方支付链接</code>——支付由你本人完成，本 Skill 不接触任何支付信息。
+    </div>
+  `;
+  stage.appendChild(card);
+
+  card.querySelector("#back").onclick = () => { state.step = 7; render(); };
+  card.querySelector("#confirm").onclick = (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = "演示模式 · 未真实下单";
+    const tip = document.createElement("div");
+    tip.className = "note";
+    tip.style.background = "rgba(255,199,44,.18)";
+    tip.innerHTML = "🎉 <b>冒险完成（演示）</b>。若配置了真实 MCP Token，此刻你会拿到订单号和支付链接。<br/>支付请前往麦当劳官方页面——麦门不碰你的钱包，只负责帮你选对。";
+    card.appendChild(tip);
+  };
+}
+
+/* ---------- 7. 启动 ---------- */
+(function init() {
+  const d = DATA.meta?.snapshotDate ?? "";
+  if (IS_LIVE) {
+    $("dataBadge").classList.remove("sample");
+    $("badgeText").textContent = "LIVE · mcp.mcd.cn";
+  } else {
+    $("badgeText").textContent = `SAMPLE · 快照 ${d}`;
+  }
+  render();
+})();
+</script>
+</body>
+</html>
