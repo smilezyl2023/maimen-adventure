@@ -1245,6 +1245,18 @@
       "status": "ON_SALE"
     },
     {
+      "code": "2430",
+      "name": "【美汁源】“黄金橙橙”",
+      "price": 15,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": 165,
+      "kcalSource": "【美汁源】“黄金橙橙”",
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
       "code": "3010",
       "name": "雪碧",
       "price": 11,
@@ -1265,6 +1277,30 @@
       "promo": null,
       "kcal": 2,
       "kcalSource": "锡兰红茶",
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "3755",
+      "name": "纯牛奶(盒装)",
+      "price": 12.5,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": null,
+      "kcalSource": null,
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "3757",
+      "name": "纯悦",
+      "price": 9,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": 0,
+      "kcalSource": "纯悦",
       "tags": [],
       "status": "ON_SALE"
     },
@@ -1305,6 +1341,18 @@
       "status": "ON_SALE"
     },
     {
+      "code": "6102",
+      "name": "苹果片",
+      "price": 7.5,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": 32,
+      "kcalSource": "苹果片",
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
       "code": "6362",
       "name": "100% 苹果汁(盒装)",
       "price": 12.5,
@@ -1313,6 +1361,30 @@
       "promo": null,
       "kcal": null,
       "kcalSource": null,
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "507387",
+      "name": "卡布奇诺",
+      "price": 25,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": null,
+      "kcalSource": null,
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "507394",
+      "name": "牛奶",
+      "price": 23,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": 176,
+      "kcalSource": "热牛奶中杯",
       "tags": [],
       "status": "ON_SALE"
     },
@@ -1337,6 +1409,30 @@
       "promo": "促销优惠",
       "kcal": 13,
       "kcalSource": "冰美式中杯",
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "510479",
+      "name": "燕麦奶铁",
+      "price": 9.9,
+      "categories": [],
+      "originalPrice": 27,
+      "promo": "随单购麦金卡优惠",
+      "kcal": 132,
+      "kcalSource": "冰燕麦奶铁中杯",
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "510488",
+      "name": "燕麦奶",
+      "price": 25,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": null,
+      "kcalSource": null,
       "tags": [],
       "status": "ON_SALE"
     },
@@ -1373,6 +1469,18 @@
       "promo": null,
       "kcal": 117,
       "kcalSource": "阳光柠檬红茶中杯",
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "515520",
+      "name": "怡泉+C",
+      "price": 13.5,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": 110,
+      "kcalSource": "中杯怡泉+C",
       "tags": [],
       "status": "ON_SALE"
     },
@@ -1416,6 +1524,42 @@
       "code": "521316",
       "name": "高达吉士双牛堡",
       "price": 26,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": null,
+      "kcalSource": null,
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "521799",
+      "name": "日式鲜磨山葵酱",
+      "price": 3,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": null,
+      "kcalSource": null,
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "521817",
+      "name": "【美汁源】“多汁柠柠”",
+      "price": 13.5,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": null,
+      "kcalSource": null,
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "521871",
+      "name": "美禄可可雪冰",
+      "price": 27,
       "categories": [],
       "originalPrice": null,
       "promo": null,
@@ -1497,6 +1641,18 @@
       "status": "ON_SALE"
     },
     {
+      "code": "521966",
+      "name": "韩式烟熏芝士风味酱",
+      "price": 3,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": null,
+      "kcalSource": null,
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
       "code": "9900005456",
       "name": "麦辣鸡腿汉堡三件套",
       "price": 49,
@@ -1545,6 +1701,30 @@
       "status": "ON_SALE"
     },
     {
+      "code": "9900016078",
+      "name": "蘸酱麦麦脆汁鸡",
+      "price": 19,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": 328,
+      "kcalSource": "麦麦脆汁鸡-琵琶腿",
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "9900016077",
+      "name": "蘸酱炸鸡",
+      "price": 19,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": 332,
+      "kcalSource": "麦麦脆汁鸡-带骨里脊",
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
       "code": "9900016075",
       "name": "龙焰芝士棒鸡腿堡三件套",
       "price": 56,
@@ -1574,6 +1754,18 @@
       "price": 53,
       "categories": [],
       "originalPrice": null,
+      "promo": null,
+      "kcal": null,
+      "kcalSource": null,
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "9900014092",
+      "name": "麦当劳奶昔",
+      "price": 15,
+      "categories": [],
+      "originalPrice": 22,
       "promo": null,
       "kcal": null,
       "kcalSource": null,
@@ -1833,6 +2025,18 @@
       "status": "ON_SALE"
     },
     {
+      "code": "9900016082",
+      "name": "心形薯饼5块",
+      "price": 15.5,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": 146,
+      "kcalSource": "脆薯饼",
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
       "code": "9900005430",
       "name": "芝士安格斯厚牛堡三件套",
       "price": 60.5,
@@ -1841,6 +2045,18 @@
       "promo": null,
       "kcal": null,
       "kcalSource": null,
+      "tags": [],
+      "status": "ON_SALE"
+    },
+    {
+      "code": "9900005432",
+      "name": "麦麦脆汁鸡1块",
+      "price": 16,
+      "categories": [],
+      "originalPrice": null,
+      "promo": null,
+      "kcal": 328,
+      "kcalSource": "麦麦脆汁鸡-琵琶腿",
       "tags": [],
       "status": "ON_SALE"
     }
