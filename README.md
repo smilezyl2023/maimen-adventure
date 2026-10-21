@@ -17,6 +17,10 @@
 </p>
 
 <p align="center"><a href="assets/demo.html"><b>▶ 打开网页 Demo（无需安装、无需 Token）</b></a></p>
+<p align="center">
+  <a href="https://github.com/M-China/mcd-developer-innovation-challenge/issues/953"><img alt="已报名" src="https://img.shields.io/badge/%E6%8A%A5%E5%90%8D-Issue%20%23953-DA291C?style=flat-square"></a>
+  <a href="https://github.com/M-China/mcd-developer-innovation-challenge/blob/main/RANKING.md"><img alt="排行榜" src="https://img.shields.io/badge/%E6%8E%92%E8%A1%8C%E6%A6%9C-RANKING.md-FFC72C?style=flat-square"></a>
+</p>
 
 ---
 
