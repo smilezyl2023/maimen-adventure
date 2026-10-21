@@ -1,9 +1,14 @@
 ---
 name: maimen-adventure
-description: "麦门大冒险 - 把麦当劳点餐变成一场剧情关卡式冒险探索。基于用户定位或自选门店的真实菜单数据，通过 4 幕剧情提问，逐幕解锁主食、小食、饮料甜品，最终揭晓 3 个「命运菜单」并支持确认后直接下单。当用户说「麦门大冒险」「帮我点麦当劳」「今天吃什么麦当劳」「想吃麦当劳但不知道点什么」「点餐冒险」「来一场点餐游戏」时使用。关键词：麦门、麦当劳点餐、今日菜单、冒险、剧情点餐、选择困难、附近麦当劳、下单"
-version: "1.0.0"
-author: "MaiMen Adventure"
-license: "MIT"
+display_name: 麦门大冒险
+display_name_en: MaiMen Adventure
+description: "麦门大冒险：把麦当劳点餐变成 4 幕剧情关卡式冒险。基于定位或自选门店的真实菜单提问，逐幕解锁主食/小食/饮料甜品，最终给出 3 张差异化的「今日菜单」（豪爽/清爽/性价比），用户明确确认后调用官方接口下单。当用户说「麦门大冒险」「帮我点麦当劳」「今天吃什么麦当劳」「想吃麦当劳但不知道点什么」「点餐冒险」「选择困难」「来一场点餐游戏」时使用。不适用：只想查单个餐品热量、只想查/取消已有订单、明确说「别问了随便给一个」。"
+description_zh: "把麦当劳点餐变成 4 幕剧情冒险：按你附近门店的真实菜单问 6 个问题，3 分钟给出豪爽/清爽/性价比 3 张今日菜单，确认后可下单。"
+description_en: "Turn McDonald's ordering into a 4-act adventure: 6 questions against your nearest store's real menu, 3 distinct meal plans in 3 minutes, order on confirmation."
+category: lifestyle
+version: 1.0.0
+author: smilezyl2023
+license: MIT
 ---
 
 # 麦门大冒险 · MaiMen Adventure
@@ -55,7 +60,7 @@ license: "MIT"
 
 ### 第一幕 · 补给试炼（预算与饥饿）
 
-问 2 题：**人均预算档**（20 / 30 / 50 / 不限）、**今天的饥饿程度**（轻 / 中 / 很饿）
+问 2 题：**人均预算档**（按当前菜单实时推算 3 档 / 不限）、**今天的饥饿程度**（轻 / 中 / 很饿）
 
 → 收窄主食桶。旁白播报真实解锁数：**「🔓 解锁 N 道主食」**（N = 过滤后真实条数，不许估算）
 

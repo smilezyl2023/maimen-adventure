@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="麦门大冒险 MaiMen Adventure">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFF7E3"/>
+      <stop offset="55%" stop-color="#FFEFC4"/>
+      <stop offset="100%" stop-color="#FFE08A"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#DA291C"/>
+      <stop offset="100%" stop-color="#A81E14"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFC72C" stop-opacity=".62"/>
+      <stop offset="100%" stop-color="#FFC72C" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#A81E14" flood-opacity=".22"/>
+    </filter>
+  </defs>
+
+  <!-- 底 -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <circle cx="256" cy="212" r="196" fill="url(#glow)"/>
+
+  <!-- 远景山丘 -->
+  <path d="M0 400 Q 96 348 190 386 T 360 380 Q 448 352 512 384 L512 512 L0 512 Z" fill="#FFD98A" opacity=".5"/>
+  <path d="M0 432 Q 120 396 236 428 T 430 420 Q 480 404 512 426 L512 512 L0 512 Z" fill="#FFCE6B" opacity=".45"/>
+
+  <!-- 三扇命运门（背景，呼应 3 张菜单） -->
+  <g opacity=".34">
+    <path d="M76 442 L76 320 A 46 46 0 0 1 168 320 L168 442 Z" fill="#DA291C" opacity=".35"/>
+    <path d="M344 442 L344 320 A 46 46 0 0 1 436 320 L436 442 Z" fill="#DA291C" opacity=".35"/>
+  </g>
+
+  <!-- 主门 -->
+  <g filter="url(#soft)">
+    <path d="M148 452 L148 250 A 108 108 0 0 1 364 250 L364 452 Z" fill="url(#sky)"/>
+    <path d="M176 452 L176 256 A 80 80 0 0 1 336 256 L336 452 Z" fill="#FFF3D0"/>
+
+    <!-- 门内光芒 -->
+
+    <!-- 门内暖光 -->
+    <g opacity=".55">
+      <rect x="176" y="256" width="160" height="196" fill="#FFE08A" opacity=".28"/>
+    </g>
+
+    <!-- 门内剪影：一份汉堡套餐 -->
+    <g transform="translate(256 320) scale(1.15)" fill="#DA291C">
+      <path d="M-46 6 Q -46 -30 -18 -32 L 18 -32 Q 46 -30 46 6 Z"/>
+      <rect x="-50" y="10" width="100" height="9" rx="4.5"/>
+      <rect x="-44" y="23" width="88" height="12" rx="6"/>
+      <rect x="-50" y="40" width="100" height="9" rx="4.5"/>
+      <rect x="-42" y="53" width="84" height="7" rx="3.5" opacity=".7"/>
+    </g>
+  </g>
+
+  <!-- 路径虚线 -->
+  <path d="M196 470 Q 300 448 404 470" stroke="#A81E14" stroke-width="5" stroke-dasharray="13 13" fill="none" opacity=".38"/>
+</svg>
