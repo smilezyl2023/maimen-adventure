@@ -18,14 +18,21 @@ const RAW = JSON.parse(readFileSync(resolve(ROOT, 'assets/sample-menu.json'), 'u
 const MENU = normalizeMenu(RAW);
 
 let pass = 0;
+let group = '起点';
+const perGroup = new Map();
 const fails = [];
 
 function ok(name, cond, detail = '') {
   if (cond) {
     pass += 1;
   } else {
-    fails.push(`${name}${detail ? ' —— ' + detail : ''}`);
+    fails.push(`[${group}] ${name}${detail ? ' —— ' + detail : ''}`);
   }
+  perGroup.set(group, (perGroup.get(group) ?? 0) + 1);
+}
+/** 标记当前用例组（只影响报错定位，不影响断言） */
+function G(name) {
+  group = name;
 }
 
 const base = {
@@ -45,12 +52,14 @@ const names = (plan) => plan.items.map((i) => i.name);
 const allCodes = new Set(MENU.items.map((i) => i.code));
 
 /* ---------- 1. 结构：永远 3 张卡 ---------- */
+G('1. 结构：永远 3 张卡');
 for (const budget of [15, 20, 25, 30, 35, 45, 60, 100]) {
   const r = run({ budget });
   ok(`预算 ¥${budget} 仍返回 3 张卡`, r.plans.length === 3, `实际 ${r.plans.length} 张`);
 }
 
 /* ---------- 2. 铁律：绝不虚构菜品 ---------- */
+G('2. 铁律：绝不虚构菜品');
 for (const budget of [20, 35, 60]) {
   const r = run({ budget });
   for (const plan of r.plans) {
@@ -61,6 +70,7 @@ for (const budget of [20, 35, 60]) {
 }
 
 /* ---------- 3. 数量：人数与"很饿" ---------- */
+G('3. 数量：人数与"很饿"');
 {
   const r2 = run({ people: 2 });
   const mains = r2.plans[0].items.filter((i) => i.bucket === 'mainFood');
@@ -76,6 +86,7 @@ for (const budget of [20, 35, 60]) {
 }
 
 /* ---------- 4. 用户偏好是硬约束 ---------- */
+G('4. 用户偏好是硬约束');
 {
   const r = run({ spice: 'none' });
   for (const plan of r.plans) {
@@ -92,6 +103,7 @@ for (const budget of [20, 35, 60]) {
 }
 
 /* ---------- 5. 预算：明示超支，不悄悄超 ---------- */
+G('5. 预算：明示超支，不悄悄超');
 for (const budget of [20, 25, 30, 35, 50, 80]) {
   const r = run({ budget });
   const cap = budget * 1.1;
@@ -120,7 +132,7 @@ for (const budget of [20, 25, 30, 35, 50, 80]) {
 }
 
 /* ---------- 6. 主题人格：不能串味 ---------- */
-{
+G('6. 主题人格：不能串味');{
   const r = run({ budget: 40, flavor: 'any' });
 
   const hearty = r.plans.find((p) => p.theme === 'hearty');
@@ -148,6 +160,7 @@ for (const budget of [20, 25, 30, 35, 50, 80]) {
 }
 
 /* ---------- 7. 差异化：预算够时，三张卡不该长一样 ---------- */
+G('7. 差异化：预算够时，三张卡不该长一样');
 {
   const r = run({ budget: 60, flavor: 'any', wantDrink: true });
   const sigs = new Set(r.plans.map((p) => p.items.map((i) => i.code).sort().join('|')));
@@ -155,9 +168,108 @@ for (const budget of [20, 25, 30, 35, 50, 80]) {
 
   const mains = r.plans.map((p) => p.items.find((i) => i.bucket === 'mainFood').code);
   ok('预算充足时三张卡主食不全相同', new Set(mains).size >= 2, mains.join('/'));
+
+  // 反向保护：预算宽松时如果三张卡都退化成一主食+一饮料，
+  // 说明"预算内优先"这条排序把 completeness 彻底压死了——那不是省钱，那是敷衍。
+  const bucketCounts = r.plans.map((p) => new Set(p.items.map((i) => i.bucket)).size);
+  ok(
+    '预算 ¥60 时至少有一张卡 ≥3 类（主食+配餐+饮料）',
+    bucketCounts.some((c) => c >= 3),
+    bucketCounts.join('/')
+  );
+}
+
+/* ---------- 7b. 预算内优先：能不加钱就不加钱 ---------- */
+G('7b. 预算内优先');
+{
+  // 这条规则来自一次真实翻车：预算 45 时清爽型给出了 ¥56.4 的四件套（超支 ¥11.4），
+  // 而一份 ¥40 的二件套就躺在候选池里没被选中——因为"四件套更像一顿完整的饭"
+  // 的完整度加分盖过了"要用户多掏 11 块"这件事。钱的事不能输给完整度。
+  const budgets = [25, 30, 35, 40, 45, 50, 60, 80];
+  let anyInBudget = 0;
+  for (const budget of budgets) {
+    const r = run({ budget });
+    for (const plan of r.plans) {
+      const p = priceOf(plan);
+      // 只能有一个"不得不超"的理由：本主题所有组合都超了。
+      // 这里退一步检查"超支幅度不超过一顿主食"，超太多的说明根本没认真找预算内的解。
+      const mainPrice = plan.items.find((i) => i.bucket === 'mainFood')?.price ?? 0;
+      ok(
+        `预算 ¥${budget} 的「${plan.label}」超支 ≤ 一份主食价 ¥${mainPrice}`,
+        p - budget <= mainPrice + 0.01,
+        `实际 ¥${p}，超 ¥${(p - budget).toFixed(1)}`
+      );
+      if (p <= budget + 0.01) anyInBudget += 1;
+    }
+  }
+  ok('四档预算里绝大多数卡都落在预算内', anyInBudget >= 18, `只有 ${anyInBudget}/24 张`);
+}
+
+/* ---------- 7d. 低预算的已知退化：允许重样，但不许贵 ---------- */
+G('7d. 低预算退化');
+{
+  // 预算 15-25 时，示例菜单里唯一可行的组合就是「田园脆鸡堡 ¥16 + 矿泉水 ¥6 = ¥22」。
+  // 物理上只有这一种解，三张卡必然有两张撞车。这时的正确行为是：
+  //   承认重复、保证性价比卡仍是最便宜的，**绝不为了"看着不一样"去推更贵的东西**。
+  // 反例（真实踩过）：为了区分，把性价比卡换成 ¥26 的可乐版——"性价比"比"豪爽"还贵。
+  for (const budget of [15, 20, 25]) {
+    const r = run({ budget });
+    const value = r.plans.find((p) => p.theme === 'value');
+    const cheapest = Math.min(...r.plans.map(priceOf));
+    ok(`预算 ¥${budget} 的性价比卡仍是最便宜`, priceOf(value) <= cheapest + 0.01, `¥${priceOf(value)} vs ¥${cheapest}`);
+    for (const p of r.plans) {
+      ok(
+        `预算 ¥${budget} 的「${p.label}」不超过最便宜套餐 ¥2`,
+        priceOf(p) <= cheapest + 2.01,
+        `¥${priceOf(p)} vs ¥${cheapest}`
+      );
+    }
+  }
+  // 反过来：预算一旦宽裕，重复就不该再出现
+  for (const budget of [30, 35, 45, 60]) {
+    const r = run({ budget });
+    const sigs = new Set(r.plans.map((p) => p.items.map((i) => `${i.code}x${i.qty}`).sort().join('|')));
+    ok(`预算 ¥${budget} 三张卡互不相同`, sigs.size === 3, `只有 ${sigs.size} 种`);
+  }
+}
+
+/* ---------- 7c. 三张卡不许重样（真实门店数据） ---------- */
+G('7c. 三张卡不许重样');
+{
+  // 用真实门店菜单跑，因为它比示例菜单更"难"：88 个餐品、套餐/精选/任选混杂、
+  // 主食最便宜也要 ¥26，预算 30 时三张卡的可行解被压得极窄，最容易撞车。
+  const LIVE_PATH = resolve(ROOT, 'assets/live-menu.json');
+  let live = null;
+  try {
+    live = normalizeMenu(JSON.parse(readFileSync(LIVE_PATH, 'utf8')));
+  } catch {
+    live = null;
+  }
+  if (live) {
+    for (const budget of [30, 45, 60, 80]) {
+      const r = buildMenu(live, { ...base, budget, flavor: 'chicken' });
+      const sigs = r.plans.map((p) => p.items.map((i) => `${i.code}x${i.qty}`).sort().join('|'));
+      ok(`真实菜单 预算 ¥${budget} 三张卡互不相同`, new Set(sigs).size === r.plans.length, `${new Set(sigs).size}/${r.plans.length} 种`);
+      for (const p of r.plans) {
+        // 上限用引擎自己声明的"容忍上限"（预算 × 30%），而不是拍一个绝对金额。
+        // 真实门店最便宜的鸡堡 ¥26，配最便宜的饮料 ¥9.9 就是 ¥35.9——预算 30 时
+        // 物理上买不出"30 块以内、有主食有饮料"的组合，引擎只能如实超支并说明金额。
+        ok(
+          `真实菜单 预算 ¥${budget} 的「${p.label}」超支 ≤ 预算的 30%`,
+          priceOf(p) - budget <= budget * 0.3 + 0.01,
+          `¥${priceOf(p)}`
+        );
+        // 不许出现"鸡肉堡单品精选 / 堡堡随心拼"这类没法定案的候选组
+        for (const it of p.items) {
+          ok(`「${p.label}」不含候选组 ${it.name}`, !/单品精选|任选|随心拼/.test(it.name));
+        }
+      }
+    }
+  }
 }
 
 /* ---------- 8. 热量：只求和已知值，绝不估算 ---------- */
+G('8. 热量：只求和已知值，绝不估算');
 {
   const r = run({ budget: 45 });
   for (const plan of r.plans) {
@@ -169,6 +281,7 @@ for (const budget of [20, 25, 30, 35, 50, 80]) {
 }
 
 /* ---------- 9. 售罄餐品绝不能出现 ---------- */
+G('9. 售罄餐品绝不能出现');
 {
   const r = run({ budget: 50 });
   for (const plan of r.plans) {
@@ -179,6 +292,7 @@ for (const budget of [20, 25, 30, 35, 50, 80]) {
 }
 
 /* ---------- 10. 字段容错：预算字段两种写法都能吃 ---------- */
+G('10. 字段容错：预算字段两种写法都能吃');
 {
   const a = buildMenu(MENU, { ...base, budget: 35 });
   const b = buildMenu(MENU, { ...base, budgetPerPerson: 35 });
@@ -190,6 +304,7 @@ for (const budget of [20, 25, 30, 35, 50, 80]) {
 }
 
 /* ---------- 11. 分桶：不认识的东西宁可丢掉，也不瞎猜 ---------- */
+G('11. 分桶：不认识的东西宁可丢掉，也不瞎猜');
 {
   ok('汉堡分到主食', detectBucket({ name: '巨无霸', tags: [] }) === 'mainFood');
   ok('可乐分到饮料', detectBucket({ name: '可口可乐(中)', tags: [] }) === 'drink');
@@ -199,6 +314,7 @@ for (const budget of [20, 25, 30, 35, 50, 80]) {
 }
 
 /* ---------- 12. 空菜单不崩 ---------- */
+G('12. 空菜单不崩');
 {
   const r = buildMenu({ categories: [] }, base);
   ok('空菜单返回 0 张卡而不是抛异常', Array.isArray(r.plans) && r.plans.length === 0);
@@ -211,4 +327,5 @@ if (fails.length) {
   console.log(`\n结果：${pass} 项通过，${fails.length} 项失败\n`);
   process.exit(1);
 }
+for (const [g, n] of perGroup) console.log(`  · ${g}: ${n}`);
 console.log(`  ✅ ${pass} 项断言全部通过\n`);

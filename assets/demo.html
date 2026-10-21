@@ -104,6 +104,10 @@
   .t-hearty{background:rgba(218,41,28,.1);color:#B3200F}
   .t-fresh{background:rgba(47,140,88,.12);color:#1F6B42}
   .t-value{background:rgba(214,158,0,.16);color:#8A5B00}
+  /* 徽章前的小圆点：代替原来那个 emoji 图标。
+     沙箱和不少精简系统没装 emoji 字体，🍃🗡️💰 会渲染成方块，
+     一个方块比没有图标更难看，所以改用纯 CSS 色点。 */
+  .tbadge::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:middle;background:currentColor;opacity:.85}
   .plan .price{font-size:20px;font-weight:900;color:var(--red);font-variant-numeric:tabular-nums}
   .plan .tag{font-size:12px;color:var(--ink-soft);margin-bottom:12px}
   .plan ul{list-style:none;display:grid;gap:7px;margin-bottom:12px}
@@ -223,315 +227,959 @@ const SAMPLE = {
   ]
 };
 
-const DATA = window.__MCD_DATA__ || SAMPLE;
-const IS_LIVE = Boolean(window.__MCD_DATA__);
+/* 数据源优先级（三级回落，保证任何打开方式都有东西看）：
+ *   1. window.__MCD_DATA__       —— 宿主页面注入的实时菜单（Skill 内嵌时用）
+ *   2. assets/live-menu.json     —— 真实门店快照（sync_live.mjs 从 mcp.mcd.cn 拉下来的）
+ *   3. SAMPLE                    —— 内置示例，双击 HTML 也能玩
+ * 第 2 级用 fetch，file:// 下会被 CORS 拦，这时静默回落到第 3 级——
+ * 所以在线看是真实门店数据，本地双击是示例数据，两种都成立。
+ */
+let DATA = window.__MCD_DATA__ || SAMPLE;
+let DATA_SOURCE = window.__MCD_DATA__ ? 'injected' : 'sample';
+window.__MCD_ACTIVE_MENU__ = DATA;
 
-/* ---------- 2. 归一化 + 打标（与 build_pool.mjs 同构） ---------- */
-const BUCKET_KW = {
-  dessert: ["冰淇淋","甜筒","圣代","麦旋风","蛋糕","甜品","新地"],
-  drink: ["可乐","雪碧","咖啡","茶","果汁","奶茶","矿泉水","饮料","美式","拿铁"],
-  side: ["薯条","鸡块","鸡翅","小食","麦乐鸡","玉米","沙拉","派"],
-  mainFood: ["汉堡","堡","卷","饭","鸡排","麦辣","巨无霸","安格斯","奥良","板烧","双层","吉士"]
-};
-const hasAny = (t, ks) => ks.some(k => t.includes(k));
+/* === ENGINE:BEGIN 由 scripts/sync_demo.mjs 生成，请勿手改 === */
+(function () {
+  "use strict";
 
-function detectBucket(it) {
-  const cat = String(it.category ?? "").toLowerCase();
-  const t = cat + " " + it.name;
-  for (const b of ["dessert","drink","side","mainFood"]) if (hasAny(t, BUCKET_KW[b])) return b;
-  return null;
-}
+  const BUCKET_KEYWORDS = {
+    mainFood: ['汉堡', '堡', '卷', '饭', '鸡排', '麦辣', '巨无霸', '安格斯', '奥良', '板烧', '双层', '吉士', '双层吉士'],
+    side: ['薯条', '鸡块', '鸡翅', '小食', '麦乐鸡', '玉米', '沙拉', '派'],
+    drink: ['可乐', '雪碧', '咖啡', '茶', '果汁', '奶茶', '矿泉水', '饮料', '美式', '拿铁'],
+    dessert: ['冰淇淋', '甜筒', '圣代', '麦旋风', '蛋糕', '甜品', '新地'],
+  };
 
-const SPICY_KW = ["辣","香辣","麻辣","劲辣"];
-const FLAVOR_KW = { beef:["牛","巨无霸","安格斯","吉士","双层"], chicken:["鸡","麦辣","板烧","奥良"], fish:["鱼","鳕"], veggie:["素","蔬菜","沙拉","玉米"] };
-const LARGE_KW = ["大份","双层","巨无霸","安格斯","加大","超大"];
-const SMALL_KW = ["小份","迷你","小食"];
-const HEALTHY_KW = ["沙拉","蔬菜","玉米","无糖","矿泉","美式","纯茶","低脂","鸡胸"];
-const NOVEL_KW = ["新品","限定","当季","NEW"];
+  /** 价格可能是元或分，>1000 视为分 */
+  function normalizePrice(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    return n > 1000 ? +(n / 100).toFixed(2) : +n.toFixed(2);
+  }
 
-function normalize(raw) {
-  const items = [];
-  for (const c of raw.categories ?? raw.data ?? []) {
-    for (const it of c.items ?? []) {
-      const obj = { ...it, category: c.name };
-      const bucket = detectBucket(obj);
-      if (!bucket || !obj.name) continue;
-      items.push({
-        code: String(obj.code ?? obj.name), name: obj.name, bucket,
-        price: Number(obj.price) > 1000 ? Number(obj.price) / 100 : Number(obj.price) || 0,
-        tags: (obj.tags ?? []).map(t => typeof t === "string" ? t : t?.name ?? ""),
-        kcal: typeof obj.kcal === "number" ? obj.kcal : null,
-        isCombo: /套餐/.test(obj.name), soldOut: obj.status === "SOLD_OUT"
-      });
+  /** 售罄判断，兼容多种字段 */
+  function isSoldOut(item) {
+    if (item.soldOut === true || item.available === false) return true;
+    const s = String(item.status ?? '').toUpperCase();
+    return s === 'SOLD_OUT' || s === 'SOLD' || s === 'OFF_SHELF';
+  }
+
+  /** 按 category 优先、关键词兜底，判断餐品属于哪个桶 */
+  function detectBucket(item) {
+    const cats = [].concat(item.categories ?? [], item.category ?? [], item.categoryName ?? []);
+    const cat = cats.join(' ').toLowerCase();
+    const name = String(item.name ?? '');
+    const combined = `${cat} ${name}`;
+
+    /* 0. 真实的"卖相"优先于分类名。
+     *    实测踩过的坑：分类「巨无霸牛鱼肉堡」里有"那么大鸡排（椒盐风味）"，
+     *    但它显然是小食不是主食；分类「小食拼盘」里还有一份 ¥62 的四人餐。
+     *    先按明确的商品类型切，再退回分类。 */
+    if (/酱$|蘸酱/.test(name)) return 'side';               // 蘸酱属于配餐附件
+    if (/周边|贴|痒痒挠|玩具|玩偶|盲盒|卡片/.test(name)) return null; // 非食品，直接丢弃
+    if (/冰淇淋|甜筒|圣代|麦旋风|新地|派$|蛋糕|拉明顿|阿芙佳朵/.test(name)) return 'dessert';
+    if (/可乐|雪碧|咖啡|奶铁|美式|拿铁|卡布奇诺|奶茶|茶$|红茶|绿茶|汁|矿泉水|纯悦|牛奶|奶昔|雪冰|豆浆|燕麦奶|怡泉/.test(name)) return 'drink';
+    if (/鸡排|鸡块|麦乐鸡|鸡翅|薯条|薯饼|玉米杯|沙拉|苹果片|鸡球|笋卷|油条/.test(name)) return 'side';
+
+    // 分类首选：命中英文/拼音分类
+    const catMap = [
+      [['dessert', 'sweet', '甜品', '冰淇淋'], 'dessert'],
+      [['drink', 'beverage', '饮料', '饮品'], 'drink'],
+      [['side', 'snack', '小食', '配餐', '拼盘'], 'side'],
+      [['burger', 'main', '主食', '汉堡', '堡'], 'mainFood'],
+    ];
+    for (const [keys, bucket] of catMap) {
+      if (keys.some((k) => cat.includes(k))) return bucket;
     }
+
+    // 关键词兜底：先判甜品（因为它常出现在 side 分类里），再判其他
+    for (const bucket of ['dessert', 'drink', 'side', 'mainFood']) {
+      if (BUCKET_KEYWORDS[bucket].some((k) => combined.includes(k))) return bucket;
+    }
+    return null; // 无法归类 → 丢弃，不瞎猜
   }
-  const buckets = { mainFood: [], side: [], drink: [], dessert: [] };
-  for (const it of items) if (!it.soldOut) buckets[it.bucket].push(it);
-  return { items, buckets };
-}
 
-const txt = it => it.name + " " + it.tags.join(" ");
-const isSpicy = it => hasAny(txt(it), SPICY_KW);
-const flavorsOf = it => Object.entries(FLAVOR_KW).filter(([, ks]) => hasAny(txt(it), ks)).map(([k]) => k);
-// 份量：tags 优先，热量兜底（真实门店 tags 常为空，只看 tags 会让大小份全变 normal）
-const sizeOf = it => {
-  if (hasAny(txt(it), LARGE_KW)) return "large";
-  if (hasAny(txt(it), SMALL_KW)) return "small";
-  const k = typeof it.kcal === "number" ? it.kcal : 0;
-  const isMain = it.bucket === "mainFood";
-  if (k >= (isMain ? 520 : 380)) return "large";
-  if (k > 0 && k <= (isMain ? 320 : 200)) return "small";
-  return "normal";
-};
-// 堆料程度：双层/厚牛/巨无霸这类"看起来就猛"的，用名字信号兜底
-const richnessOf = it => {
-  let s = 0;
-  if (/双层|巨无霸|厚牛|安格斯|三层|加大/.test(txt(it))) s += 2;
-  if (/牛|培根|芝士|吉士/.test(txt(it))) s += 1;
-  return s;
-};
-const isHealthy = it => hasAny(txt(it), HEALTHY_KW);
-const isNovel = it => hasAny(txt(it), NOVEL_KW);
-
-/* ---------- 3. 打分（与 scoring-rules.md 对应） ---------- */
-function scoreItem(it, a, ctx) {
-  const budget = a.budget;
-  let budgetFit;
-  if (!isFinite(budget)) budgetFit = 25;
-  else if (it.price <= budget) budgetFit = 12.5 + 12.5 * (1 - it.price / (budget * 2));
-  else if (it.price <= budget * 1.2) budgetFit = 10;
-  else budgetFit = 0;
-
-  let flavorFit = 5;
-  if (a.flavor === "any") flavorFit = 20;
-  else if (flavorsOf(it).includes(a.flavor)) flavorFit = 25;
-
-  const spicy = isSpicy(it);
-  let spiceFit = spicy ? 6 : 15;
-  if (a.spice === "mild") spiceFit = spicy ? 12 : 10;
-  else if (a.spice === "hot") spiceFit = spicy ? 15 : 6;
-
-  const size = sizeOf(it);
-  let fullnessFit = 15;
-  if (a.hunger === "light") fullnessFit = size === "large" ? 6 : 15;
-  else if (a.hunger === "heavy") fullnessFit = size === "large" ? 15 : size === "normal" ? 10 : 5;
-
-  let healthFit = 5;
-  if (a.careCalories && it.kcal && ctx.minKcal) healthFit = Math.max(0, Math.min(10, 10 * ctx.minKcal / it.kcal));
-  else if (a.careCalories) healthFit = isHealthy(it) ? 9 : 4;
-
-  return { budgetFit, flavorFit, spiceFit, fullnessFit, healthFit, novelty: isNovel(it) ? 10 : 5 };
-}
-
-function themeScore(it, theme, a, ctx) {
-  const d = scoreItem(it, a, ctx);
-  const priceRatio = 1 - it.price / (ctx.maxPrice || Math.max(it.price, 1));
-  const isMain = it.bucket === "mainFood";
-  const size = sizeOf(it);
-  const kcal = it.kcal ?? 0;
-
-  if (theme === "hearty") {
-    // 豪爽：只看"够不够猛"，份量 + 绝对热量 + 堆料程度三信号叠加
-    const big = size === "large" ? 34 : size === "small" ? -30 : 0;
-    const kcalBoost = kcal ? Math.min(26, kcal / 26) : 0;
-    return 0.3 * d.budgetFit + big + kcalBoost + (isMain ? richnessOf(it) * 4 : 0);
+  /** 把 MCP 原始菜单展开成扁平数组 */
+  function flattenMenu(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (!raw) return [];
+    // 兼容 { categories: [{ items: [] }] } / { data: [...] } / { meals: [...] }
+    const candidates = ['items', 'meals', 'products', 'list', 'data', 'categories'];
+    for (const key of candidates) {
+      const v = raw[key];
+      if (Array.isArray(v)) {
+        // categories 还需要再拍平一层
+        const out = [];
+        for (const c of v) {
+          if (Array.isArray(c.items)) out.push(...c.items.map((i) => ({ category: c.name ?? c.category, ...i })));
+          else out.push(c);
+        }
+        return out;
+      }
+    }
+    return [];
   }
-  if (theme === "fresh") {
-    // 清爽：轻负担优先，蔬果/无糖类给正向加成
-    const fried = hasAny(txt(it), ["薯条", "炸", "鸡块", "鸡翅", "麦辣"]) ? 30 : 0;
-    const sp = isSpicy(it) ? 22 : 0;
-    const kp = kcal ? Math.min(28, kcal / 30) : 10;
-    return 0.3 * d.budgetFit + (isHealthy(it) ? 22 : 0) - fried - sp - kp;
+
+  function normalizeMenu(raw) {
+    const items = flattenMenu(raw)
+      .map((i, idx) => {
+        const bucket = detectBucket(i);
+        if (!bucket) return null;
+        const name = String(i.name ?? i.mealName ?? '').trim();
+        if (!name) return null;
+        const tags = []
+          .concat(i.tags ?? [])
+          .concat(i.tag ?? [])
+          .map((t) => (typeof t === 'string' ? t : t?.name ?? ''))
+          .filter(Boolean);
+        // 套餐识别：显式字段 > 名称关键词 > 分类关键词。
+        // 真实数据里"M 记套餐"不会带 isCombo 字段，只能靠名字/分类判断，
+        // 判错的后果很严重——一个 ¥49 的三件套会再被配上薯条和可乐变成 ¥76。
+        const catText = [].concat(i.categories ?? [], i.category ?? [], i.categoryName ?? []).join(' ');
+        const comboByName = /三件套|套餐|开心乐园餐|双人餐|多人餐|任选|组合|精选|拼盘|桶/.test(name);
+        const comboByCat = /套餐|多人餐|拼盘|组合/.test(catText);
+        // 第三类：不是"套餐"，但也不是"一个具体汉堡"——「堡堡随心拼(7件任选)」「鸡肉堡单品精选」
+        // 「牛肉堡单品精选」这类，是**任选/候选组**，价格与内容都不确定。
+        // 若当成主食挑中，会输出"¥27 的鸡肉堡单品精选"这种连是哪只堡都答不上来的菜单，
+        // 下单环节直接卡死。故一律标记为 notOrderable：不进主食候选。
+        const groupBy = /任选|精选|随心拼|自选|组合装/.test(name);
+        const isGroup = Boolean(i.isGroup) || groupBy;
+        const isCombo = Boolean(i.isCombo ?? i.combo ?? (comboByName || comboByCat)) || isGroup;
+        return {
+          code: String(i.code ?? i.mealCode ?? i.id ?? `idx-${idx}`),
+          name,
+          bucket,
+          price: normalizePrice(i.price ?? i.unitPrice ?? i.salePrice ?? i.originPrice),
+          originalPrice: Number.isFinite(Number(i.originalPrice)) ? Number(i.originalPrice) : null,
+          tags,
+          kcal: i.kcal ?? i.energy ?? i.calorie ?? null,
+          isCombo,
+          isGroup,
+          soldOut: isSoldOut(i),
+          raw: i,
+        };
+      })
+      .filter(Boolean);
+
+    const buckets = { mainFood: [], side: [], drink: [], dessert: [] };
+    for (const it of items) {
+      if (it.soldOut) continue;
+      buckets[it.bucket].push(it);
+    }
+    return { items, buckets };
   }
-  // 性价比：便宜是入场券，"同样价钱给得更多"才是真义
-  const valueRatio = (kcal && it.price > 0) ? Math.min(3, kcal / it.price) : 0;
-  return 0.45 * d.budgetFit + priceRatio * 22 + valueRatio * 9;
-}
 
-const THEMES = [
-  { key:"hearty", emoji:"", icon:"豪爽", label:"豪爽型", tagline:"来都来了，吃个痛快" },
-  { key:"fresh",  emoji:"", icon:"清爽", label:"清爽型", tagline:"想吃，但不想有负担" },
-  { key:"value",  emoji:"", icon:"性价比", label:"性价比型", tagline:"每一分钱都要花在刀刃上" }
-];
+  /* ============================================================
+   * 2. 特征打标：辣度 / 风味 / 份量 / 健康 / 新品
+   * ============================================================ */
 
-function qtyFor(b, a) {
-  const p = Math.max(1, a.people);
-  if (b === "mainFood") return a.hunger === "heavy" ? Math.ceil(p * 1.5) : p;
-  if (b === "side") return p;
-  if (b === "drink") return a.wantDrink ? p : 0;
-  if (b === "dessert") return a.wantDessert ? p : 0;
-  return p;
-}
+  const SPICY = ['辣', '香辣', '麻辣', '劲辣'];
+  const FLAVOR_MAP = {
+    beef: ['牛', '巨无霸', '安格斯', '吉士', '双层'],
+    chicken: ['鸡', '麦辣', '板烧', '奥良', '鸡排'],
+    fish: ['鱼', '鳕'],
+    veggie: ['素', '蔬菜', '沙拉', '玉米'],
+  };
+  const LARGE = ['大份', '双层', '巨无霸', '安格斯', '加大', '超大'];
+  const MEDIUM = ['中份', '正常份', '标准'];
+  const SMALL = ['小份', '迷你', '小食'];
+  const HEALTHY = ['沙拉', '蔬菜', '玉米', '无糖', '矿泉', '美式', '纯茶', '低脂', '鸡胸'];
+  const NOVEL = ['新品', '限定', '当季', 'NEW', '新品'];
 
-function cartesian(arrs) {
-  return arrs.reduce((acc, arr) => acc.flatMap(a => arr.map(b => [...a, b])), [[]]);
-}
+  function hasAny(text, keys) {
+    return keys.some((k) => text.includes(k));
+  }
 
-/* ---------- 4. 主算法（与 build_pool.mjs 对齐） ---------- */
-function buildPlans(menu, a) {
-  const b = menu.buckets;
-  const kcalList = menu.items.filter(i => i.kcal).map(i => i.kcal);
-  const ctx = { minKcal: kcalList.length ? Math.min(...kcalList) : null, maxPrice: Math.max(...menu.items.map(i => i.price), 1) };
+  function tagsText(item) {
+    return `${item.name} ${item.tags.join(' ')}`;
+  }
 
-  // 用户偏好硬过滤
-  const pref = (list) => {
-    let out = list;
-    if (a.spice === "none") { const ns = out.filter(i => !isSpicy(i)); if (ns.length) out = ns; }
-    if (a.flavor !== "any") {
-      const mains = out.filter(i => i.bucket === "mainFood");
-      if (mains.length) {
-        const keep = new Set(mains.filter(i => flavorsOf(i).includes(a.flavor)).map(i => i.code));
-        if (keep.size) out = out.filter(i => i.bucket !== "mainFood" || keep.has(i.code));
+  function isSpicy(item) {
+    return hasAny(tagsText(item), SPICY);
+  }
+
+  function flavorOf(item) {
+    const merged = tagsText(item);
+    const hits = Object.entries(FLAVOR_MAP).filter(([, keys]) => hasAny(merged, keys));
+    return hits.length ? hits.map(([f]) => f) : [];
+  }
+
+  /**
+   * 份量推断：先看 tags 显式标注，再用热量做兜底。
+   * 真实门店数据里 tags 常常是空的，只看 tags 会让"大小份"全变 normal，
+   * 豪爽型就失去了"吃个痛快"的判断依据。热量阈值按主食量级校准。
+   */
+  function sizeOf(item) {
+    const t = tagsText(item);
+    if (hasAny(t, LARGE)) return 'large';
+    if (hasAny(t, SMALL)) return 'small';
+    if (hasAny(t, MEDIUM)) return 'normal';
+    const kcal = typeof item.kcal === 'number' ? item.kcal : 0;
+    const isMain = item.bucket === 'mainFood';
+    const hi = isMain ? 520 : 380;
+    const lo = isMain ? 320 : 200;
+    if (kcal >= hi) return 'large';
+    if (kcal > 0 && kcal <= lo) return 'small';
+    return 'normal';
+  }
+
+  /** 主食绝对热量（拍脑袋的量级校准，只用于主题人格，不参与营养结论） */
+  function mainKcalTier(item) {
+    const kcal = typeof item.kcal === 'number' ? item.kcal : 0;
+    if (!kcal) return 0;
+    if (kcal >= 620) return 3; // 重磅
+    if (kcal >= 500) return 2; // 扎实
+    return 1;
+  }
+
+  /** 配料丰富度：双层/厚牛/巨无霸/安格斯这类"堆料"的，用名字信号兜底 */
+  function richnessOf(item) {
+    const t = tagsText(item);
+    let s = 0;
+    if (/双层|巨无霸|厚牛|安格斯|三层|加大/.test(t)) s += 2;
+    if (/牛|培根|芝士|吉士/.test(t)) s += 1;
+    return s; // 0~3
+  }
+
+  function isHealthy(item) {
+    return hasAny(tagsText(item), HEALTHY);
+  }
+
+  function isNovel(item) {
+    return hasAny(tagsText(item), NOVEL);
+  }
+
+  /* ============================================================
+   * 3. 单品打分（满分 100）
+   * ============================================================ */
+
+  function scoreItem(item, ans, ctx = {}) {
+    const { budget = 30, flavor = 'any', spice = 'none', hunger = 'normal', careCalories = false } = ans;
+    const minKcal = ctx.minKcal ?? null;
+
+    // budgetFit 0~25
+    let budgetFit;
+    if (!Number.isFinite(budget)) budgetFit = 25;
+    else if (item.price <= budget) budgetFit = 12.5 + 12.5 * (1 - item.price / (budget * 2));
+    else if (item.price <= budget * 1.2) budgetFit = 10;
+    else budgetFit = 0;
+
+    // flavorFit 0~25
+    let flavorFit = 5;
+    if (flavor === 'any') flavorFit = 20;
+    else if (flavorOf(item).includes(flavor)) flavorFit = 25;
+
+    // spiceFit 0~15
+    const spicy = isSpicy(item);
+    let spiceFit;
+    if (spice === 'none') spiceFit = spicy ? 0 : 15;
+    else if (spice === 'mild') spiceFit = spicy ? 12 : 10;
+    else spiceFit = spicy ? 15 : 6;
+
+    // fullnessFit 0~15
+    const size = sizeOf(item);
+    let fullnessFit = 15;
+    if (hunger === 'light') fullnessFit = size === 'small' || size === 'normal' ? 15 : 6;
+    else if (hunger === 'heavy') fullnessFit = size === 'large' ? 15 : size === 'normal' ? 10 : 5;
+
+    // healthFit 0~10
+    let healthFit = 5;
+    if (careCalories) {
+      if (item.kcal && minKcal) {
+        const ratio = minKcal / item.kcal; // 越小越健康
+        healthFit = Math.max(0, Math.min(10, 10 * ratio));
+      } else if (isHealthy(item)) healthFit = 9;
+      else healthFit = 4;
+    }
+
+    // novelty 0~10
+    const novelty = isNovel(item) ? 10 : 5;
+
+    const total = budgetFit + flavorFit + spiceFit + fullnessFit + healthFit + novelty;
+    return {
+      total: +total.toFixed(2),
+      detail: {
+        budgetFit: +budgetFit.toFixed(2),
+        flavorFit,
+        spiceFit,
+        fullnessFit,
+        healthFit: +healthFit.toFixed(2),
+        novelty,
+      },
+    };
+  }
+
+  /* ============================================================
+   * 4. 三主题目标函数
+   * ============================================================ */
+
+  const THEMES = [
+    { key: 'hearty', label: '🗡️ 豪爽型', desc: '来都来了，吃个痛快' },
+    { key: 'fresh', label: '🌿 清爽型', desc: '想吃，但不想有负担' },
+    { key: 'value', label: '💰 性价比型', desc: '每一分钱都要花在刀刃上' },
+  ];
+
+  function themeScore(item, theme, ans, ctx) {
+    const base = scoreItem(item, ans, ctx);
+    const d = base.detail;
+    const priceRatio = 1 - item.price / (ctx.maxPrice || Math.max(item.price, 1)); // 0~1，越便宜越高
+
+    // 用户偏好（风味/辣度/预算）已构成基础分主体；主题在此基础上做"人格化"差异
+    const isMain = item.bucket === 'mainFood';
+    const size = sizeOf(item);
+    const kcal = item.kcal ?? 0;
+
+    if (theme === 'hearty') {
+      // 豪爽：吃得痛快 —— 只看"够不够猛"，不看用户风味偏好（风味已由候选池硬过滤保证）
+      // 三个信号叠加：份量档位 + 绝对热量 + 堆料程度，避免被 budgetFit 的 ±1 分波动盖过
+      const bigBoost = size === 'large' ? 34 : size === 'small' ? -30 : 0;
+      const kcalBoost = kcal ? Math.min(26, kcal / 26) : 0;
+      const richBoost = isMain ? richnessOf(item) * 4 : 0;
+      const s = 0.3 * d.budgetFit + bigBoost + kcalBoost + richBoost;
+      return { score: +s.toFixed(2), base };
+    }
+    if (theme === 'fresh') {
+      // 清爽：轻负担优先 —— 辣/油炸/高热量扣分必须压过风味匹配（清爽型不推荐辣堡）
+      // 水果/蔬菜/无糖类给正向加成，让"清爽"有正向人格而不只是减分
+      const friedPenalty = hasAny(tagsText(item), ['薯条', '炸', '鸡块', '鸡翅', '麦辣']) ? 30 : 0;
+      const spicyPenalty = isSpicy(item) ? 22 : 0;
+      // 热量未知时按"中等偏重"处理（罚 14），不能当成 0 罚分——
+      // 否则一个不知道热量的厚牛堡会被算成比 391 kcal 的板烧还"清爽"。
+      const kcalPenalty = kcal ? Math.min(28, kcal / 30) : 14;
+      const healthyBoost = isHealthy(item) ? 22 : 0;
+      const s = 0.3 * d.budgetFit + healthyBoost - friedPenalty - spicyPenalty - kcalPenalty;
+      return { score: +s.toFixed(2), base };
+    }
+    // 性价比：钱要花得值 —— 便宜是入场券，"同样价钱给得更多"才是性价比的真义
+    const valueRatio = (kcal && item.price > 0) ? Math.min(3, kcal / item.price) : 0;
+    const s = 0.45 * d.budgetFit + priceRatio * 22 + valueRatio * 9;
+    return { score: +s.toFixed(2), base };
+  }
+  /** 硬约束过滤：超预算 20% 直接淘汰（宽松模式除外） */
+  function hardFilter(items, ans) {
+    const budget = ans.budget;
+    if (!Number.isFinite(budget)) return items;
+    return items.filter((i) => i.price <= budget * 1.2);
+  }
+
+  /**
+   * 用户偏好硬过滤（优先级最高：用户诉求 > 主题人格）
+   * - 不吃辣 → 剔除全部辣味餐品（若剔除后为空则保留）
+   * - 指定风味 → 仅约束主食桶（小食/饮料/甜品不受风味约束）
+   * 注：无对应风味时自动回退到放宽，保证永远有候选。
+   */
+  function applyUserPreference(items, ans) {
+    let out = items;
+
+    if (ans.spice === 'none') {
+      const nonSpicy = out.filter((i) => !isSpicy(i));
+      if (nonSpicy.length) out = nonSpicy;
+    }
+
+    if (ans.flavor && ans.flavor !== 'any') {
+      const mainOnly = out.filter((i) => i.bucket === 'mainFood');
+      if (mainOnly.length) {
+        const flavoredCodes = new Set(mainOnly.filter((i) => flavorOf(i).includes(ans.flavor)).map((i) => i.code));
+        if (flavoredCodes.size) out = out.filter((i) => i.bucket !== 'mainFood' || flavoredCodes.has(i.code));
       }
     }
     return out;
-  };
-
-  const prepared = {
-    mainFood: pref(b.mainFood).length ? pref(b.mainFood) : b.mainFood,
-    side: pref(b.side).length ? pref(b.side) : b.side,
-    drink: pref(b.drink).length ? pref(b.drink) : b.drink,
-    dessert: pref(b.dessert).length ? pref(b.dessert) : b.dessert
-  };
-  const stats = Object.fromEntries(Object.entries(prepared).map(([k, v]) => [k, v.length]));
-
-  const cap = isFinite(a.budget) ? a.budget * Math.max(1, a.people) * 1.1 : Infinity;
-  const usedMain = new Set(), usedSig = new Set();
-  const plans = [];
-
-  for (const theme of THEMES) {
-    // 主题主食池：清爽型逐层收紧（不辣 → 非油炸 → 低热量），每层非空才采纳
-    let pool = prepared.mainFood;
-    if (theme.key === "fresh") {
-      const ns = pool.filter(i => !isSpicy(i)); if (ns.length) pool = ns;
-      const nf = pool.filter(i => !hasAny(txt(i), ["薯条", "炸", "鸡块", "鸡翅", "麦辣"])); if (nf.length) pool = nf;
-      const withK = pool.filter(i => typeof i.kcal === "number" && i.kcal > 0);
-      if (withK.length >= 2) {
-        const sorted = withK.map(i => i.kcal).sort((x, y) => x - y);
-        const median = sorted[Math.floor(sorted.length / 2)];
-        const lighter = pool.filter(i => !(typeof i.kcal === "number" && i.kcal > median));
-        if (lighter.length) pool = lighter;
-      }
-    }
-    let ranked = pool.map(i => ({ item: i, score: themeScore(i, theme.key, a, ctx) }))
-                     .sort((x, y) => y.score - x.score);
-    if (!ranked.length) continue;
-
-    // 去重优先，但预算合规更优先
-    let cands = ranked.filter(r => !usedMain.has(r.item.code));
-    if (!cands.length) cands = ranked;
-    cands = cands.slice(0, 5);
-
-    const pickBucket = (name) => {
-      if (!prepared[name].length || qtyFor(name, a) === 0) return [];
-      const scored = prepared[name].map(i => ({ item: i, score: themeScore(i, theme.key, a, ctx) }));
-      const byScore = scored.slice().sort((x, y) => y.score - x.score).slice(0, 3);
-      const byPrice = scored.slice().sort((x, y) => x.item.price - y.item.price).slice(0, 3);
-      const m = new Map(); [...byScore, ...byPrice].forEach(s => m.set(s.item.code, s));
-      return [...m.values()];
-    };
-    const sidePool = pickBucket("side");
-    const drinkPool = pickBucket("drink");
-    const dessertPool = pickBucket("dessert");
-
-    // 降级用：各桶最便宜的一款（"用户要饮料但预算放不下"时，宁可给主食+小食）
-    const cheapestOf = (name) => {
-      if (!prepared[name].length || qtyFor(name, a) === 0) return [];
-      const it = prepared[name].slice().sort((x, y) => x.price - y.price)[0];
-      return [{ item: it, score: themeScore(it, theme.key, a, ctx) }];
-    };
-    const sideLite = cheapestOf("side");
-    const drinkLite = cheapestOf("drink");
-    const dessertLite = cheapestOf("dessert");
-
-    const build = (slots) => cartesian(slots).map(arr => {
-      const combo = arr.map(c => ({ ...c, qty: qtyFor(c.item.bucket, a) }));
-      const total = combo.reduce((s, c) => s + c.item.price * c.qty, 0);
-      const buckets = new Set(combo.map(c => c.item.bucket)).size;
-      const avg = combo.reduce((s, c) => s + c.score, 0) / combo.length;
-      const fill = isFinite(a.budget) ? Math.min(1, total / (a.budget * Math.max(1, a.people))) : .6;
-      return { combo, total, buckets, score: avg + (buckets - 1) * 4 + fill * 4 };
-    });
-
-    const combosFor = (main) => {
-      const slots = [[main]];
-      if (!main.item.isCombo && sidePool.length) slots.push(sidePool);
-      if (drinkPool.length) slots.push(drinkPool);
-      if (dessertPool.length) slots.push(dessertPool);
-      const full = build(slots);
-
-      // 预算紧（主食吃掉 70% 以上额度）时补上"三件套 / 两件套"，避免被迫把预算全砸在饮料上
-      const mainPrice = main.item.price * qtyFor("mainFood", a);
-      const tight = isFinite(cap) && mainPrice > cap * 0.7;
-      if (!tight) return full;
-
-      const available = [];
-      if (!main.item.isCombo) available.push(sidePool.length ? sidePool : sideLite);
-      if (drinkPool.length) available.push(drinkPool);
-      if (dessertPool.length) available.push(dessertPool);
-
-      const three = available.length >= 2 ? build([[main], available[0], available[1]]) : [];
-      const two = [];
-      if (!main.item.isCombo && sideLite.length) two.push(...build([[main], sideLite]));
-      if (drinkLite.length) two.push(...build([[main], drinkLite]));
-      if (dessertLite.length) two.push(...build([[main], dessertLite]));
-      return [...full, ...three, ...two];
-    };
-
-    let all = cands.flatMap(m => combosFor(m));
-    if (!all.some(c => c.total <= cap)) {
-      const fb = ranked.slice(0, 8).flatMap(m => combosFor(m));
-      if (fb.some(c => c.total <= cap)) all = fb;
-
-      // 仍然全部超预算：截断掉"离谱的贵"，别给一份 ¥62 的套餐却只报了 15 块预算
-      const cheapestMain = ranked.reduce((min, m) => Math.min(min, m.item.price), Number.POSITIVE_INFINITY);
-      const saneCeil = cheapestMain + Math.max(20, (isFinite(a.budget) ? a.budget : 30) * 0.5);
-      const sane = all.filter(c => c.combo[0].item.price <= saneCeil);
-      if (sane.length) all = sane;
-    }
-    const within = all.filter(c => c.total <= cap);
-    const over = within.length === 0;
-    const list = (over ? all : within).sort((x, y) => {
-      if (over) {
-        const base = isFinite(a.budget) ? a.budget * Math.max(1, a.people) : 0;
-        return Math.abs(x.total - base) - Math.abs(y.total - base);
-      }
-      return y.score - x.score;
-    });
-
-    const sig = c => c.combo.map(x => x.item.code + "x" + x.qty).sort().join("|");
-    const top = list[0];
-    if (!top) continue;
-    const near = list.filter(c => top.score - c.score <= 10);
-    let chosen = near.find(c => !usedMain.has(c.combo[0].item.code) && !usedSig.has(sig(c)))
-              ?? near.find(c => !usedSig.has(sig(c))) ?? top;
-
-    // 诚实优先：差异化不该以超预算为代价
-    const userBudget = isFinite(a.budget) ? a.budget * Math.max(1, a.people) : Infinity;
-    if (chosen !== top && chosen.total > userBudget && top.total <= userBudget) chosen = top;
-
-    usedMain.add(chosen.combo[0].item.code);
-    usedSig.add(sig(chosen));
-
-    const kcalKnown = chosen.combo.filter(c => typeof c.item.kcal === "number");
-    const overCap = chosen.total > userBudget + 0.01;
-    const overAmount = overCap ? Math.round((chosen.total - userBudget) * 100) / 100 : 0;
-    plans.push({
-      theme: theme.key, emoji: theme.emoji, icon: theme.icon, label: theme.label, tagline: theme.tagline,
-      items: chosen.combo.map(c => ({ name: c.item.name, bucket: c.item.bucket, qty: c.qty, price: c.item.price, kcal: c.item.kcal })),
-      total: chosen.total,
-      kcal: kcalKnown.length ? kcalKnown.reduce((s, c) => s + c.item.kcal * c.qty, 0) : null,
-      complete: kcalKnown.length === chosen.combo.length,
-      overBudget: over,
-      budgetCap: isFinite(userBudget) ? userBudget : null,
-      budgetStatus: over ? "overAll" : overCap ? "stretch" : "inBudget",
-      overAmount,
-      note: over ? `预算不够（超 ¥${overAmount}）` : overCap ? `略超预算 ¥${overAmount}` : "预算内"
-    });
   }
-  return { plans, stats };
-}
 
+  /**
+   * 候选准备：用户偏好是硬约束，预算不在桶层淘汰候选。
+   * 预算约束统一放到"组合层"（总价 ≤ 人均预算 × 人数 × 1.1）执行。
+   * 刻意不回退到全量桶——否则用户说了"不辣"却收到辣堡，等于偏好失效。
+   */
+  function fillBucket(bucket, ans) {
+    return applyUserPreference(bucket, ans);
+  }
+
+  /* ============================================================
+   * 5. 组合生成
+   * ============================================================ */
+
+  function qtyFor(bucketName, ans) {
+    const people = Math.max(1, ans.people ?? 1);
+    if (bucketName === 'mainFood') {
+      // 人均 1 份；"很饿"时每人 +0.5 份向上取整（1人→2，2人→3，4人→4）
+      return ans.hunger === 'heavy' ? Math.ceil(people * 1.5) : people;
+    }
+    if (bucketName === 'side') return people;
+    if (bucketName === 'drink') return ans.wantDrink === false ? 0 : people;
+    if (bucketName === 'dessert') return ans.wantDessert === false ? 0 : people;
+    return people;
+  }
+
+  function pickTop(items, theme, ans, ctx, n = 3) {
+    return items
+      .map((i) => ({ item: i, score: themeScore(i, theme, ans, ctx).score }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, n);
+  }
+
+  function comboScore(combo, ans) {
+    const sum = combo.reduce((acc, c) => acc + c.score, 0) / combo.length;
+    const bucketsCovered = new Set(combo.map((c) => c.item.bucket)).size;
+    // 完整度加成：三件套(主食+配餐+饮料)最像"一顿完整的饭"，最多 +8
+    const diversityBonus = (bucketsCovered - 1) * 4;
+    // 预算占满率：在预算内花得更值略加分，避免永远选最便宜的凑数组合
+    const total = combo.reduce((acc, c) => acc + c.item.price * c.qty, 0);
+    const cap = Number.isFinite(ans.budget) ? ans.budget * Math.max(1, ans.people ?? 1) : Infinity;
+    const fillRatio = Number.isFinite(cap) && cap > 0 ? Math.min(1, total / cap) : 0.6;
+    return +(sum + diversityBonus + fillRatio * 4).toFixed(2);
+  }
+
+  function cartesian(arrays) {
+    return arrays.reduce((acc, arr) => acc.flatMap((a) => arr.map((b) => [...a, b])), [[]]);
+  }
+
+  /**
+   * 把"内部候选组合"转成对外的一张卡。
+   * 主循环和终局校正都要用它，抽出来是为了避免两处各写一份、
+   * 哪天改了字段但只改了一处（曾经 budgetStatus 就只在主循环里算过）。
+   */
+  function makePlan(themeKey, chosen, ans) {
+    const theme = THEMES.find((t) => t.key === themeKey) ?? { key: themeKey, label: themeKey, desc: '' };
+    const total = chosen.combo.reduce((acc, c) => acc + c.item.price * c.qty, 0);
+    const withKcal = chosen.combo.filter((c) => typeof c.item.kcal === 'number');
+    const totalKcal = withKcal.length ? withKcal.reduce((acc, c) => acc + c.item.kcal * c.qty, 0) : null;
+    const kcalComplete = withKcal.length === chosen.combo.length;
+
+    const userBudget = Number.isFinite(ans?.budget) ? ans.budget * Math.max(1, ans.people ?? 1) : Infinity;
+    const overCap = total > userBudget + 0.01;
+    const overAmount = overCap ? +(total - userBudget).toFixed(2) : 0;
+    const overBudget = !Number.isFinite(userBudget);
+    const budgetStatus = overCap ? 'stretch' : 'inBudget';
+
+    return {
+      theme: theme.key,
+      label: theme.label,
+      tagline: theme.desc,
+      items: chosen.combo.map((c) => ({
+        code: c.item.code,
+        name: c.item.name,
+        bucket: c.item.bucket,
+        qty: c.qty,
+        price: c.item.price,
+        subtotal: +(c.item.price * c.qty).toFixed(2),
+        kcal: c.item.kcal,
+      })),
+      estimateTotal: +total.toFixed(2),
+      totalKcal,
+      kcalComplete,
+      overBudget,
+      budgetCap: Number.isFinite(userBudget) ? +userBudget.toFixed(2) : null,
+      budgetStatus,
+      overAmount,
+      note: budgetStatus === 'inBudget' ? '预算内' : `略超预算 ¥${overAmount}`,
+      score: chosen.score,
+      reason: buildReason(theme.key, chosen.combo, ans),
+    };
+  }
+
+  function buildMenu(menu, ans) {
+    const norm = menu && menu.buckets ? menu : normalizeMenu(menu);
+    const b = norm.buckets;
+
+    // 容错：允许调用方直接传 question-mapping.md 里的原始字段名（budgetPerPerson）
+    const a = { ...ans };
+    if (!Number.isFinite(a.budget) && Number.isFinite(a.budgetPerPerson)) {
+      a.budget = a.budgetPerPerson;
+    }
+    ans = a;
+
+    /* 热量基线：只用**主食桶**里有数据的项。
+     * 曾经用「全菜单最低热量」，而最低的那条是锡兰红茶（2 kcal），
+     * 结果所有主食的 healthFit 都被压成 0，清爽型只能靠"有没有低脂标签"瞎猜，
+     * 甚至把热量未知的芝士堡当成"轻盈"推荐出去。 */
+    const mainKcalList = norm.buckets.mainFood
+      .map((i) => i.kcal)
+      .filter((v) => typeof v === 'number' && v > 0);
+    const ctx = {
+      minKcal: mainKcalList.length ? Math.min(...mainKcalList) : null,
+      careCalories: ans.careCalories,
+    };
+
+    const maxPrice = Math.max(...norm.items.map((i) => i.price), 1);
+
+    // 每个桶准备候选（含空桶保护）
+    /* 配餐桶里不该出现"套餐"。
+     * 实测：小食分类下挂着「麦乐鸡套餐 ¥45」「麦辣鸡翅4块套餐 ¥59.5」，
+     * 如果不剔除，会出现"一份主食 + 一份 ¥45 的配餐套餐"这种又贵又重复的组合。
+     * 主食桶保留套餐（它本来就是"一整份饭"），配餐桶一律只留单点。 */
+    const prepared = {
+      // 「X 单品精选」「堡堡随心拼(7件任选)」这类"候选组"不进主食桶：
+      // 它既不是一只具体的堡，也没法下单（用户还得再选一次），价格却像一份主食。
+      // 实测被选成性价比卡后输出"¥27 的鸡肉堡单品精选"——说得跟没说一样。
+      mainFood: fillBucket(b.mainFood, ans, ctx).filter((i) => !i.isGroup),
+      side: fillBucket(b.side, ans, ctx).filter((i) => !i.isCombo),
+      drink: fillBucket(b.drink, ans, ctx).filter((i) => !i.isCombo),
+      dessert: fillBucket(b.dessert, ans, ctx).filter((i) => !i.isCombo),
+    };
+
+    const results = [];
+    let valueCandidates = [];
+    const themeCandidatePools = {};
+    const usedMain = new Set();
+    const usedSignatures = new Set();
+    const cap = Number.isFinite(ans.budget) ? ans.budget * Math.max(1, ans.people ?? 1) * 1.1 : Infinity;
+    const totalOf = (c) => c.combo.reduce((acc, x) => acc + x.item.price * x.qty, 0);
+
+    // 每个主题独立的主食排序（套餐优先）
+    const rankedMains = {};
+    for (const theme of THEMES) {
+      const mains = prepared.mainFood;
+      const comboMains = mains.filter((i) => i.isCombo);
+      const singleMains = mains.filter((i) => !i.isCombo);
+
+      // 套餐不能一律优先。
+      // 真实数据里套餐动辄 ¥49-63，而单品堡只要 ¥15-39；如果直接"有套餐就用套餐"，
+      // 性价比型会被逼着推荐全店最贵的东西（实测出现过"性价比 ¥59.9"这种笑话）。
+      // 正确做法：套餐和单品放在同一个池子里比，交给主题函数去判断谁更合适。
+      let pool = mains;
+      if (theme.key === 'fresh' && singleMains.length) {
+        // 清爽型优先单品（套餐里往往自带薯条可乐，与"清爽"人设相悖）
+        pool = singleMains;
+      }
+      // 清爽型的"人格底线"，按优先级逐层收紧（每层都做"非空才采纳"，绝不清空食物池）：
+      //   1. 主食不辣          —— 辣堡直接违背"清爽"人设
+      //   2. 非油炸/非高热量    —— 炸鸡类剔除
+      //   3. 有热量数据         —— 连热量都不知道的，没资格被打上"轻盈"标签
+      //   4. 热量不超过中位数   —— 同类里只留更轻的那一半
+      if (theme.key === 'fresh') {
+        const nonSpicy = pool.filter((i) => !isSpicy(i));
+        if (nonSpicy.length) pool = nonSpicy;
+
+        const notFried = pool.filter((i) => !hasAny(tagsText(i), ['薯条', '炸', '鸡块', '鸡翅', '麦辣']));
+        if (notFried.length) pool = notFried;
+
+        // 关键一步：实测"高达吉士双牛堡""咸蛋黄鸡腿蛋月堡"等新品在营养库里没有条目，
+        // 不剔除的话它们会以"未知"身份混进清爽型，输出一张自己都说不出热量的"清爽"卡。
+        const withKcal = pool.filter((i) => typeof i.kcal === 'number' && i.kcal > 0);
+        if (withKcal.length >= 2) pool = withKcal;
+
+        if (withKcal.length >= 3) {
+          const sorted = withKcal.map((i) => i.kcal).sort((x, y) => x - y);
+          const median = sorted[Math.floor(sorted.length / 2)];
+          const lighter = pool.filter((i) => !(typeof i.kcal === 'number' && i.kcal > median));
+          if (lighter.length) pool = lighter;
+        }
+      }
+      rankedMains[theme.key] = pickTop(pool, theme.key, ans, { ...ctx, maxPrice }, 99);
+    }
+
+    for (const theme of THEMES) {
+      const ctxTheme = { ...ctx, maxPrice };
+      const people = Math.max(1, ans.people ?? 1);
+
+      // 主食候选：优先"未被其它主题用过"的，但只在"不影响预算合规"的前提下。
+      // 关键原则：预算合规 > 三卡差异化。若去掉已用主食会导致本主题无合规组合，
+      // 就保留全部候选（宁可两张卡主食相同，也不能给出超预算的菜单）。
+      const ranked = rankedMains[theme.key] ?? [];
+      const unused = ranked.filter((m) => !usedMain.has(m.item.code));
+      const mainCandidates = (unused.length ? unused : ranked).slice(0, 5);
+      // 若"去重后的候选"凑不出预算内组合，则回退到完整候选池
+      if (!mainCandidates.length) continue;
+
+      // 配餐桶：为控制组合数，每桶保留"主题 Top3 + 最便宜 3 个"。
+      // 曾经只留 2 个，结果豪爽型的配餐永远是苹果派+矿泉水（最便宜那两个被"低价兜底"选票挤满），
+      // 三张卡的主食又都被预算压成同一款，最后三张卡长得一模一样。放宽到 3 后才有真实分化空间。
+      const pickBucket = (bucketName) => {
+        if (!prepared[bucketName].length) return [];
+        if (qtyFor(bucketName, ans) === 0) return [];
+        const scored = prepared[bucketName].map((i) => ({
+          item: i,
+          score: themeScore(i, theme.key, ans, ctxTheme).score,
+        }));
+        const byScore = scored.slice().sort((a, b) => b.score - a.score).slice(0, 3);
+        const byPrice = scored.slice().sort((a, b) => a.item.price - b.item.price).slice(0, 3);
+        const map = new Map();
+        for (const s of [...byScore, ...byPrice]) map.set(s.item.code, s);
+        // 保底：把"整个菜品库里最便宜的那款"无论主题分高低都塞进来。
+        // 真实踩过：预算 30 时豪爽型算出 ¥51.9，而"龙焰鸡腿堡 + 圆筒冰淇淋 = ¥32.5"
+        // 这个明显更好的解压根没被生成——因为圆筒在豪爽型打分里排不进前 3
+        // （热量高、份量小，完全不符合"吃个痛快"），于是候选池里没有它。
+        // 便宜的解必须永远在场，选不选是排序的事，生不生成是候选池的事。
+        const cheapest = prepared[bucketName].slice().sort((a, b) => a.price - b.price)[0];
+        if (cheapest && !map.has(cheapest.code)) {
+          map.set(cheapest.code, { item: cheapest, score: themeScore(cheapest, theme.key, ans, ctxTheme).score });
+        }
+        return [...map.values()];
+      };
+
+      const sidePool = pickBucket('side');
+      const drinkPool = pickBucket('drink');
+      const dessertPool = pickBucket('dessert');
+
+      // 降级用：只留各桶最便宜的一款。
+      // 用途是"用户说要饮料，但预算根本放不下饮料"时，宁可给他主食+小食，
+      // 也不要把预算全砸在饮料上、主食被迫降级成最便宜那款（那才是真的不划算）。
+      const cheapestOf = (bucketName) => {
+        if (!prepared[bucketName].length || qtyFor(bucketName, ans) === 0) return [];
+        const item = prepared[bucketName].slice().sort((a, b) => a.price - b.price)[0];
+        return [{ item, score: themeScore(item, theme.key, ans, ctxTheme).score }];
+      };
+      const sideLite = cheapestOf('side');
+      const drinkLite = cheapestOf('drink');
+      const dessertLite = cheapestOf('dessert');
+
+      // 生成"围着某个主食"的组合：穷举各桶候选，天然保证多样性，再用预算硬筛选。
+      //
+      // 精简组合（主食 + 一个配餐）**无条件生成**，不再由"主食是否吃掉 70% 额度"来触发。
+      // 原因：真实菜单里主食 ¥26-39、配餐每样 ¥10-17，主食再便宜也顶不住"主食+小食+饮料+甜品"
+      // 四件齐上。若只在 tight 时生成二件套，一旦预算贴近主食价，本主题就只剩"超预算"这一个选项
+      // （实测：预算 45 时清爽型被迫推 ¥56.4 的四件套，超支 ¥11.4，而 ¥40 的二件套就在旁边）。
+      // 生成之后由统一的"预算内 > 超预算"排序去裁决，谁也不用猜。
+      const combosFor = (main) => {
+        const build = (slots) =>
+          cartesian(slots).map((arr) => {
+            const enriched = arr.map((c) => ({ ...c, qty: qtyFor(c.item.bucket, ans) }));
+            const total = enriched.reduce((a, x) => a + x.item.price * x.qty, 0);
+            const buckets = new Set(enriched.map((x) => x.item.bucket)).size;
+            return { combo: enriched, total, buckets, score: comboScore(enriched, ans) };
+          });
+
+        const slots = [[main]];
+        if (!main.item.isCombo && sidePool.length) slots.push(sidePool);
+        if (drinkPool.length) slots.push(drinkPool);
+        if (dessertPool.length) slots.push(dessertPool);
+
+        const full = build(slots);
+
+        // 二件套：主食 + 各桶里"主题最优的前几个"（不是只给最便宜的），
+        // 这样清爽型能配到玉米杯+美式，而不是被迫配圆筒冰淇淋。
+        const twoPiece = [];
+        for (const pool of [...sidePool, drinkPool, dessertPool].filter((p) => p.length)) {
+          twoPiece.push(...build([[main], pool]));
+        }
+
+        // 三件套（主食 + 小食 + 饮料）：只在能配全时才有意义，
+        // 用来覆盖"预算只够三件"和"四件超、三件刚好"的区间。
+        const threePiece = [];
+        if (!main.item.isCombo && sidePool.length && drinkPool.length) {
+          threePiece.push(...build([[main], sidePool, drinkPool]));
+        }
+
+        // 降级二件套：只用各桶最便宜的那款。
+        // 作用是"用户说要饮料，但预算根本放不下正常配餐"时，宁可给一份朴素的两件套，
+        // 也不要把预算全砸在饮料上、主食被迫降级成最便宜那款。
+        const liteTwo = [];
+        if (!main.item.isCombo && sideLite.length) liteTwo.push(...build([[main], sideLite]));
+        if (drinkLite.length) liteTwo.push(...build([[main], drinkLite]));
+        if (dessertLite.length) liteTwo.push(...build([[main], dessertLite]));
+
+        return [...full, ...threePiece, ...twoPiece, ...liteTwo];
+      };
+
+      // 期望的桶数（用于衡量"组合完整度"）
+      const expectedBuckets = 1 + (sidePool.length && !mainCandidates[0]?.item.isCombo ? 1 : 0) + (drinkPool.length ? 1 : 0) + (dessertPool.length ? 1 : 0);
+
+      const allOptions = mainCandidates.flatMap((m) => combosFor(m).map((c) => ({ ...c, mainCode: m.item.code })));
+
+      // 取舍规则（明确写死）：
+      //   1. 硬约束：只在预算内组合里挑（人均预算 × 人数 × 1.1）
+      //   2. 若"去重后的候选"凑不出合规组合 → 回退到完整主食池重新生成（预算合规优先于差异化）
+      //   3. 全部超预算（预算极低）→ 取"离预算最近"的组合，不取"最便宜"的
+      //      （把预算是让用户吃得像样用的，不是用来攒钱的）
+      let candidatesForBudget = allOptions;
+      // 这里的"回退"只治一种病：**去重**把候选缩得太小，导致本可负担的组合被挤掉了。
+      // 它治不了"预算真的不够"，所以只在去重后凑不出预算内组合时才试一次；
+      // 如果去重前的候选本来也全超，那就别回退——回退只会把刚被剔除的高价套餐（¥49-63）放回来，
+      // 让一张"预算 30"的卡变成 ¥51.9 的三件套。（真实踩过）
+      // 判据只用"这个主食本身能不能进预算"，不必把整池组合重算一遍（真实菜单 14 个主食 × 几十组合，太贵）。
+      const cheapestCompanion = Math.min(
+        ...[...sideLite, ...drinkLite, ...dessertLite].map((c) => c.item.price * (c.qty ?? 1)),
+        Number.POSITIVE_INFINITY
+      );
+      const dedupTooTight = !allOptions.some((c) => c.total <= cap);
+      const affordableBeforeDedup = ranked.some(
+        (m) => m.item.price * qtyFor('mainFood', ans) + (Number.isFinite(cheapestCompanion) ? cheapestCompanion : 0) <= cap
+      );
+      if (dedupTooTight && affordableBeforeDedup) {
+        const fullPool = ranked.slice(0, 8);
+        const fallback = fullPool.flatMap((m) => combosFor(m).map((c) => ({ ...c, mainCode: m.item.code })));
+        if (fallback.some((c) => c.total <= cap)) candidatesForBudget = fallback;
+      }
+
+      /* 二次截断：预算真的不够时，"离谱的贵"比"便宜"更糟。
+       * 预算 30 块绝不该蹦出一份 ¥85 的"堡堡随心拼"。之前这段被误写在上面那个 if 内部，
+       * 而那个 if 恰恰只在"回退有效"时才成立——于是最需要截断的场景（预算根本不够）
+       * 反而永远走不到截断，实测给出了 ¥51.9 的三件套。
+       * 现在挪出来，只在"全部候选都超预算"时生效，保证挑出来的东西至少离预算不远。
+       */
+      if (!candidatesForBudget.some((c) => c.total <= cap)) {
+        // 基准取"**本次实际候选里**最便宜的主食"，不是整池最便宜的。
+        // 之前用整池算，得出 ¥26 + 20 = ¥46 的上限，于是 ¥51.9 的三件套也合规地留下了；
+        // 而实际候选里最便宜的是 ¥27.5，上限应为 ¥47.5，¥51.9 就该被拦掉。
+        const cheapestMain = mainCandidates.reduce(
+          (min, m) => (m.item.price < min ? m.item.price : min),
+          Number.POSITIVE_INFINITY
+        );
+        const budgetRef = Number.isFinite(ans.budget) ? ans.budget : 30;
+        const saneCeil = cheapestMain + Math.max(20, budgetRef * 0.5);
+        const sane = candidatesForBudget.filter((c) => c.combo[0].item.price <= saneCeil);
+        if (sane.length) candidatesForBudget = sane;
+      }
+
+      const withinCap = candidatesForBudget.filter((c) => c.total <= cap);
+      const overBudget = withinCap.length === 0;
+
+      /* 预算紧时的取舍（这是本项目最容易出错的地方，规则写死在这里）：
+       * 当"合规组合花钱太少"（< 预算的 75%），说明这个主题在现有预算下凑不出它该有的样子
+       * —— 比如豪爽型只能买到一个脆鸡堡，却因为配了矿泉水而"合规"。
+       * 此时允许轻微突破硬上限，但封顶在 预算 × 1.3，并且明确标记 stretch，
+       * 由上层文案如实告知用户"稍微超了一点，可以去掉某样"，绝不悄悄超预算。
+       */
+      const softCap = Number.isFinite(cap) ? cap * (1.3 / 1.1) : Infinity;
+      const baseline = Number.isFinite(ans.budget) ? ans.budget * Math.max(1, ans.people ?? 1) : 0;
+      const spendFloor = baseline * 0.75;
+      const topWithin = withinCap.slice().sort((a, b) => b.score - a.score)[0];
+      const needStretch = !overBudget && topWithin && topWithin.total < spendFloor;
+
+      let pool;
+      if (overBudget) {
+        pool = candidatesForBudget;
+      } else if (needStretch) {
+        const stretched = candidatesForBudget.filter((c) => c.total <= softCap);
+        pool = stretched.length ? stretched : withinCap;
+      } else {
+        pool = withinCap;
+      }
+
+      const baselineTotal = Number.isFinite(ans.budget) ? ans.budget * Math.max(1, ans.people ?? 1) : 0;
+      const options = pool.sort((a, b) => {
+        // 第一顺位永远是"这一份到底要不要用户多掏钱"。
+        // 曾经的写法是 overBudget 时才按"离预算最近"排，其余一律按主题分排——
+        // 结果主题分把一张超支 ¥11.4 的四件套排在了一张 ¥40 二件套前面，
+        // 只因为"四件套更像一顿完整的饭"（diversityBonus）。钱的事不能输给完整度。
+        const aOver = a.total > baselineTotal + 0.01 ? 1 : 0;
+        const bOver = b.total > baselineTotal + 0.01 ? 1 : 0;
+        if (aOver !== bOver) return aOver - bOver;
+        if (overBudget) {
+          // 全都超了，预算实在不够：先按超支金额分档，再在档内按主题分挑。
+          //
+          // 为什么先分档而不是直接"离预算最近"：预算 30、最便宜的鸡堡 ¥26 配圆筒 ¥5 也要 ¥31，
+          // 这时"离预算最近"会选一份 ¥31 的两件套——但豪爽型的定义是"吃个痛快"，
+          // 它宁可选 ¥32 的加量版，也不该为了省 1 块钱去选个小份。档位容差设 15%，
+          // 表达的是"多花这一成以内，值得换更好的东西"；超过一成就说明是在硬撑，不值得。
+          const aD = Math.abs(a.total - baselineTotal) / Math.max(baselineTotal, 1);
+          const bD = Math.abs(b.total - baselineTotal) / Math.max(baselineTotal, 1);
+          const TIER = 0.15;
+          const aTier = Math.floor(aD / TIER);
+          const bTier = Math.floor(bD / TIER);
+          if (aTier !== bTier) return aTier - bTier;
+          return b.score - a.score;
+        }
+        return b.score - a.score;
+      });
+      void expectedBuckets;
+      void people;
+
+      const signature = (c) => c.combo.map((x) => `${x.item.code}x${x.qty}`).sort().join('|');
+      // 差异化策略（按优先级）：
+      //   1. 优先"主食不同 且 整体清单不同" —— 最理想
+      //   2. 次选"整体清单不同" —— 主食相同时靠配餐区分（真实菜单里主食可选往往有限）
+      //   3. 兜底取本主题最优
+      // 注意：以上都在"已按预算筛过"的候选里进行，保证不会为了差异化而超预算。
+      // 差异化必须建立在"分数几乎一样"的候选之间（差价 ≤10 分）；
+      // 如果为此要牺牲 >10 分，说明这个主题在这里没有第二个合理选择，宁可重复也不将就。
+      /* 差异化只在"同一个价格档位"里做。
+       * 之前的写法是 nearTop = options 里分数相差 ≤10 的都算，然后在里面找"主食没用过"的——
+       * 排序第一顺位虽然是"要不要多花钱"，但 nearTop 只按分数差筛，天然混进了贵得多的组合，
+       * 而便宜的组合往往因为份量小、完整度低反而分低。结果预算 30 的豪爽卡落在 ¥51.9，
+       * 而 ¥31 的合规组合就在旁边。现在 nearTop 严格限定在 options[0] 的价格档位内。
+       */
+      const totalOfCombo = (c) => c.combo.reduce((acc, x) => acc + x.item.price * x.qty, 0);
+      const top = options[0];
+      const topTotal = top ? totalOfCombo(top) : 0;
+      const sameTier = (t) => Math.abs(t - topTotal) / Math.max(topTotal, 1) <= 0.1;
+      const nearTop = options.filter((c) => top && top.score - c.score <= 10 && sameTier(totalOfCombo(c)));
+
+      let chosen = top;
+      const diffCandidate =
+        nearTop.find((c) => !usedMain.has(c.combo[0].item.code) && !usedSignatures.has(signature(c))) ??
+        nearTop.find((c) => !usedSignatures.has(signature(c)));
+      if (diffCandidate) chosen = diffCandidate;
+
+      // 诚实优先：如果"差异化选择"要超预算，而"最优选择"不超，就用不超的那个。
+      // 因为用户对钱的敏感度远高于"三张卡长得不一样"。
+      const userBudget = Number.isFinite(ans.budget) ? ans.budget * Math.max(1, ans.people ?? 1) : Infinity;
+      if (diffCandidate && top && totalOfCombo(diffCandidate) > userBudget && totalOfCombo(top) <= userBudget) {
+        chosen = top;
+      }
+
+      if (!chosen) continue;
+      usedSignatures.add(signature(chosen));
+
+      // 性价比型的"备选解"：全场按价格升序的前 40 个。
+      // 只在终局校正时用到——如果打分跑偏让性价比卡比别的卡还贵，就要从这里重新求解。
+      themeCandidatePools[theme.key] = candidatesForBudget;
+      if (theme.key === 'value') {
+        valueCandidates = candidatesForBudget
+          .slice()
+          .sort((a, b) => a.total - b.total || b.score - a.score)
+          .slice(0, 40);
+      }
+
+      results.push(makePlan(theme.key, chosen, ans));
+    }
+
+    /* 最后一关：性价比型必须是三张卡里最便宜的那张。
+     * 这条不是"优化"，是定义——一张比其它两张都贵的"性价比"卡，是自相矛盾的。
+     * 出现这种情况说明打分权重跑偏了，这里做**重新求解**，而不是把别人的答案抄过来。
+     *
+     * 曾经的写法是把"最便宜那张卡"整体复制给性价比型，结果预算 45 时出现
+     * 豪爽型与性价比型一模一样的两张卡（芝士安格斯厚牛堡 + 奶铁），
+     * 用户看到的是三张卡里有两张重复——比价格算错还难看。
+     * 现在的做法：
+     *   1. 在"预算内 且 比当前最便宜更便宜"的候选里重新挑，优先主食未被占用的；
+     *   2. 实在挑不出来（预算紧到只剩一个解）才允许抄，且必须打 corrected 标记。
+     */
+    const valueIdx = results.findIndex((p) => p.theme === 'value');
+    if (valueIdx >= 0 && results.length >= 2 && valueCandidates.length) {
+      const cheapestNow = Math.min(...results.map((p) => p.estimateTotal));
+
+      if (results[valueIdx].estimateTotal > cheapestNow + 0.01) {
+        const usedMainCodes = new Set(
+          results
+            .filter((p) => p.theme !== 'value')
+            .map((p) => p.items.find((i) => i.bucket === 'mainFood')?.code)
+            .filter(Boolean)
+        );
+        const usedSigs = new Set(
+          results
+            .filter((p) => p.theme !== 'value')
+            .map((p) => p.items.map((i) => `${i.code}x${i.qty}`).sort().join('|'))
+        );
+        const sigOf = (c) => c.combo.map((x) => `${x.item.code}x${x.qty}`).sort().join('|');
+        const inBudgetPool = valueCandidates.filter(
+          (c) => c.total <= (Number.isFinite(ans.budget) ? ans.budget * Math.max(1, ans.people ?? 1) : Infinity) + 0.01
+        );
+        const searchBase = inBudgetPool.length ? inBudgetPool : valueCandidates;
+
+        const better = (c) => c.total < results[valueIdx].estimateTotal - 0.01;
+        const pick =
+          searchBase
+            .filter((c) => better(c) && !usedMainCodes.has(c.combo[0].item.code) && !usedSigs.has(sigOf(c)))
+            .sort((a, b) => a.total - b.total || b.score - a.score)[0] ??
+          searchBase.filter((c) => better(c) && !usedSigs.has(sigOf(c))).sort((a, b) => a.total - b.total)[0] ??
+          searchBase.filter((c) => better(c)).sort((a, b) => a.total - b.total)[0];
+
+        if (pick) {
+          results[valueIdx] = makePlan('value', pick, ans);
+        } else {
+          // 真的只有唯一解：把最便宜那张交给性价比型，并让原来的持有者重新出一版，
+          // 避免出现两张完全相同的卡。
+          const winner = results.reduce((a, b) => (a.estimateTotal <= b.estimateTotal ? a : b));
+          const otherIdx = results.findIndex((p, i) => i !== valueIdx && p === winner);
+          const takenSig = winner.items.map((i) => `${i.code}x${i.qty}`).sort().join('|');
+          const takenMain = winner.items.find((i) => i.bucket === 'mainFood')?.code;
+          results[valueIdx] = { ...winner, theme: 'value', label: results[valueIdx].label, tagline: results[valueIdx].tagline, corrected: true };
+          if (otherIdx >= 0) {
+            const repl = valueCandidates
+              .filter((c) => sigOf(c) !== takenSig && c.combo[0].item.code !== takenMain)
+              .sort((a, b) => b.score - a.score)[0];
+            results[otherIdx] = repl
+              ? makePlan(results[otherIdx].theme, repl, ans)
+              : { ...results[otherIdx], corrected: true };
+          }
+        }
+      }
+    }
+
+    /* 收尾：三张卡不许有两张一模一样。
+     * 上面那条只保证"性价比卡最便宜"，但如果预算紧到只剩一个解，
+     * 豪爽型和性价比型会拿到同一份菜单（实测预算 30：两张卡都是 ¥31 麦辣鸡腿堡+圆筒）。
+     * 用户看到的不是"两个主题殊途同归"，而是"你的程序出错了吧"。
+     * 处理方式：让后出现的那张卡在"自己主题的候选池"里换一个主食，
+     * 哪怕贵一点、分数低一点——只要还是同价位、不同东西，就比重复强。
+     */
+    const sigOfPlan = (p) => p.items.map((i) => `${i.code}x${i.qty}`).sort().join('|');
+    const seen = new Map();
+    for (let i = 0; i < results.length; i++) {
+      const sg = sigOfPlan(results[i]);
+      if (!seen.has(sg)) {
+        seen.set(sg, i);
+        continue;
+      }
+      // 撞车：从同主题候选里找一个"没被用过的主食"且总价相近的
+      const pool = (themeCandidatePools[results[i].theme] ?? []).filter(
+        (c) => sigOfPlan({ items: c.combo.map((x) => ({ code: x.item.code, qty: x.qty })) }) !== sg
+      );
+      // 换卡有两个硬条件：
+      //   1. 不能撞上其它卡（这是去重的本意）；
+      //   2. 不能把自己换成"比另一张卡还贵"——尤其是性价比卡。
+      //      实测预算 ¥20 时，性价比卡本来是 ¥22（全场最便宜），去重时为了跟豪爽卡区分，
+      //      换成了 ¥26 的可乐版，结果"性价比"比"豪爽"还贵。去重不能制造新矛盾。
+      const isValue = results[i].theme === 'value';
+      const cheapestOther = Math.min(...results.filter((p, j) => j !== i).map((p) => p.estimateTotal));
+      const priceCeiling = isValue ? cheapestOther - 0.01 : Number.POSITIVE_INFINITY;
+      const alt =
+        pool
+          .filter((c) => !results.some((p, j) => j !== i && sigOfPlan(p) === sigOfPlan({ items: c.combo.map((x) => ({ code: x.item.code, qty: x.qty })) })))
+          .filter((c) => c.total <= priceCeiling)
+          .sort((a, b) => Math.abs(a.total - results[i].estimateTotal) - Math.abs(b.total - results[i].estimateTotal) || b.score - a.score)[0];
+      if (alt) {
+        results[i] = makePlan(results[i].theme, alt, ans);
+        seen.set(sigOfPlan(results[i]), i);
+      }
+    }
+
+    /* 主题定义校验：豪爽型必须是三张卡里"最猛"的那张。
+     * 实测预算 45 时豪爽型给了 485 kcal（麦辣鸡腿堡+苹果汁），
+     * 而性价比型是 633 kcal（麦辣鸡腿堡+奶铁）——两张卡主食相同，配餐却让性价比卡更"猛"。
+     * "豪爽"如果连热量都输，这个标签就是骗人的。
+     * 处理：热量可比的卡之间，豪爽型不得低于其它卡；否则在它自己的候选池里换一个更猛的。
+     * 注意只在"有热量数据可比"时执行——热量缺失不等于 0，不能拿 null 去比大小。
+     */
+    const heartyIdx = results.findIndex((p) => p.theme === 'hearty');
+    if (heartyIdx >= 0 && results.length >= 2 && themeCandidatePools.hearty) {
+      const others = results.filter((p) => p.theme !== 'hearty' && typeof p.totalKcal === 'number');
+      const hk = results[heartyIdx].totalKcal;
+      if (others.length && typeof hk === 'number') {
+        const maxOther = Math.max(...others.map((p) => p.totalKcal));
+        if (hk < maxOther) {
+          const sigNow = results.map((p) => p.items.map((i) => `${i.code}x${i.qty}`).sort().join('|'));
+          // 关键约束：换得"更猛"不能顺带变得"更贵"。
+          // 第一版只按热量降序挑，结果预算 45 的豪爽卡直接从 ¥40.5 跳到 ¥50.4（超支 ¥5.4），
+          // 而另一张 ¥35.9 的卡热量还更高——用"多花钱"去换"更猛"是典型的双输。
+          // 所以只允许在"不比当前这张贵"的候选里找，找不到就承认这张卡已经是最佳取舍。
+          const priceNow = results[heartyIdx].estimateTotal;
+          const hotter = themeCandidatePools.hearty
+            .map((c) => ({
+              c,
+              kcal: c.combo.reduce((a, x) => a + (typeof x.item.kcal === 'number' ? x.item.kcal * x.qty : 0), 0),
+            }))
+            .filter((x) => x.kcal > hk)
+            .filter((x) => x.c.total <= priceNow + 0.01)
+            .filter((x) => !sigNow.includes(x.c.combo.map((y) => `${y.item.code}x${y.qty}`).sort().join('|')))
+            .sort((a, b) => b.kcal - a.kcal || b.c.score - a.c.score)[0];
+          if (hotter) results[heartyIdx] = makePlan('hearty', hotter.c, ans);
+        }
+      }
+    }
+
+    return {
+      answers: ans,
+      menuStats: {
+        total: norm.items.length,
+        buckets: Object.fromEntries(Object.entries(prepared).map(([k, v]) => [k, v.length])),
+      },
+      plans: results,
+    };
+  }
+
+  function buildReason(theme, combo, ans) {
+    const names = combo.map((c) => c.item.name);
+    if (theme === 'hearty') return `${names[0]} 打头，配${names.slice(1).join('、') || '单点'}，饱腹感拉满；饿了就别客气。`;
+    if (theme === 'fresh') return `${names[0]} 为主，搭配${names.slice(1).join('、') || '单点'}，整体口味更轻盈，吃完不犯困。`;
+    return `${names.join(' + ')} 的组合单价最省，优惠后性价比最高；预算内吃得体面。`;
+  }
+
+  /* 对外暴露：Demo 只认这 4 个入口，其余都是内部实现 */
+  window.MaiMenEngine = { normalizeMenu, buildMenu, detectBucket, scoreItem, THEMES };
+})();
+/* === ENGINE:END === */
 /* ---------- 5. 剧情脚本 ---------- */
 const ACTS = [
   { id: "prologue", name: "序章 · 召唤" },
@@ -540,6 +1188,49 @@ const ACTS = [
   { id: "act3", name: "第三幕 · 同行" },
   { id: "boss", name: "BOSS · 定餐" }
 ];
+
+/* 预算默认值不能拍脑袋写 30。
+ * 示例菜单最便宜的主食 ¥14，真实门店最便宜 ¥15.5-26——同一串选项在两种数据下体验完全不同：
+ * 真实菜单里选 ¥20，三张卡必然全部超支（最小可行组合就是 ¥26 主食 + ¥5 圆筒）。
+ * 所以默认值在运行时按当前菜单推算，让"第一眼看到的三张卡"是合理的。
+ */
+function cheapestMainPrice(menu) {
+  const mains = ((menu?.buckets?.mainFood) ?? []).filter((i) => !i.isCombo && !i.isGroup);
+  return mains.length ? Math.min(...mains.map((i) => i.price)) : 20;
+}
+
+function defaultBudget(menu) {
+  // 一份主食 + 一份配餐 + 一点余量，向上取到 5 的倍数
+  return Math.ceil((cheapestMainPrice(menu) + 13) / 5) * 5;
+}
+
+/** 序章的三档预算：刚好一顿主食 / 主食+配餐+饮料 / 再宽裕一点。
+ *  按 5 取整、去重，保证三档都"买得到东西"，不会出现点了就必然超支的选项。 */
+function budgetTiers() {
+  const m = safeMenu();
+  const c = cheapestMainPrice(m);
+  // 最低档也要"真的买得到一份主食 + 一样配餐"：
+  // 真实门店最便宜主食 ¥26.5、最便宜配餐（圆筒）¥5，如果你给"¥30 左右"，
+  // 用户点了第一档就必然看到"略超预算 ¥1.5"——那不是他抠，是我们的档位没算准。
+  const companion = Math.min(
+    ...[...(m.buckets?.side ?? []), ...(m.buckets?.drink ?? []), ...(m.buckets?.dessert ?? [])].map((i) => i.price),
+    8
+  );
+  const floor = c + companion;
+  return [...new Set([floor, floor + 12, floor + 30].map((v) => Math.ceil(v / 5) * 5))];
+}
+
+/** 归一化当前数据源的菜单（带缓存），供交互层算预算档位用 */
+let _menuCache = null;
+function safeMenu() {
+  if (_menuCache) return _menuCache;
+  try {
+    _menuCache = window.MaiMenEngine.normalizeMenu(DATA);
+  } catch {
+    _menuCache = { buckets: {} };
+  }
+  return _menuCache;
+}
 
 const state = {
   step: 0,
@@ -550,6 +1241,9 @@ const state = {
 /* ---------- 6. 渲染 ---------- */
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+/* 去掉标签里的 emoji：主题名在引擎里带 🗡️🌿💰 这类前缀，
+ * 但很多环境没有 emoji 字体，会显示成 □。界面上用 CSS 色点代替，文字保持干净。 */
+const stripEmoji = s => String(s).replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, "").trim();
 
 function renderMap() {
   $("map").innerHTML = ACTS.map((a, i) => {
@@ -579,12 +1273,20 @@ function render() {
       <p class="narr">傍晚的风里飘来一股<strong>薯条香</strong>。<br/>跟着走，前面有一扇门，上面写着两个字——<strong>麦门</strong>。</p>
       <div class="q">守卫拦下你：「先说说，你今天愿意为这一餐付多少？」</div>
       <div class="opts two" id="o1"></div>
-      <div class="note">💡 本演示使用 <b>${IS_LIVE ? "实时注入菜单" : "示例菜单快照（" + (DATA.meta?.snapshotDate ?? "—") + "）"}</b>。真实使用时，菜单来自你附近门店的实时数据。</div>
+      <div class="note"><b>数据来源</b> · 本演示使用 <b>${DATA_SOURCE === "live" ? "真实门店菜单快照（" + (DATA.meta?.storeName ?? "—") + " · " + (DATA.meta?.snapshotDate ?? "—") + "）" : DATA_SOURCE === "injected" ? "实时注入菜单" : "示例菜单快照（" + (DATA.meta?.snapshotDate ?? "—") + "）"}</b>。真实使用时，菜单来自你附近门店的实时数据。</div>
     `);
     stage.appendChild(c);
     const box = c.querySelector("#o1");
-    [["20 元以内","能吃饱就行","¥",20],["30 元左右","一份套餐的钱","¥¥",30],["50 元上下","想吃点好的","¥¥¥",50],["不限","今天不管了","∞",Infinity]]
-      .forEach(([l, s, e, v]) => box.appendChild(opt(l, s, e, () => { state.answers.budget = v; state.step = 1; render(); })));
+    // 预算档位按"当前这份菜单"实时推算，不写死 20/30/50。
+    // 真实门店最便宜的主食也要 ¥26，写死 20 就是给用户一个"点了必然全超支"的伪选项；
+    // 而示例菜单主食 ¥14，直接给 40 又显得莫名其妙。菜单换了，选项跟着换。
+    const priceTiers = budgetTiers();
+    const labels = [["能吃饱就行", "¥"], ["一份套餐的钱", "¥¥"], ["想吃点好的", "¥¥¥"]];
+    priceTiers.forEach((v, i) => {
+      const [sub, em] = labels[i] ?? ["", "¥"];
+      box.appendChild(opt(`¥${v} 左右`, sub, em, () => { state.answers.budget = v; state.step = 1; render(); }));
+    });
+    box.appendChild(opt("不限", "今天不管了", "∞", () => { state.answers.budget = Infinity; state.step = 1; render(); }));
     return;
   }
 
@@ -668,10 +1370,28 @@ function render() {
 
   /* --- BOSS：揭晓 --- */
   if (state.step === 6) {
-    const menu = normalize(DATA);
+    // 引擎来自 window.MaiMenEngine（构建时由 scripts/sync_demo.mjs 从
+    // scripts/build_pool.mjs 注入），保证 Demo 与 CLI 用的是**同一份**规则。
+    // 以前这里是手抄的一份，抄漏了六处，Demo 和命令行给出的菜单不一样。
+    const { normalizeMenu: normalizeMenuFn, buildMenu } = window.MaiMenEngine;
+    const menu = normalizeMenuFn(DATA);
     state.menu = menu;
-    const { plans } = buildPlans(menu, state.answers);
-    state.plans = plans;
+    window.__MCD_LAST_MENU__ = menu;
+    // 万一用户跳过了预算关（比如脚本直连），按当前菜单给一个合理默认值，
+    // 而不是留着一个"在真实门店根本不够用"的 30。
+    if (!Number.isFinite(state.answers.budget) && state.answers.budget !== Infinity) {
+      state.answers.budget = defaultBudget(menu);
+    }
+    const res = buildMenu(menu, state.answers);
+    // 字段名适配：引擎面向 CLI 用 estimateTotal / totalKcal / kcalComplete，
+    // 渲染层历史上用的是 total / kcal / complete。适配集中放在这里一处，
+    // 比把渲染层全部改一遍更安全（渲染层还有十几处引用）。
+    state.plans = res.plans.map((p) => ({
+      ...p,
+      total: p.estimateTotal,
+      kcal: p.totalKcal,
+      complete: p.kcalComplete,
+    }));
     state.step = 7;
     render();
     return;
@@ -717,7 +1437,7 @@ function renderPlans() {
         : `<span class="chip warn">${esc(p.note)}</span>`
     ].join("");
     el.innerHTML = `
-      <div class="head"><h3><span class="tbadge t-${p.theme}">${p.label}</span></h3><div class="price">¥${p.total.toFixed(1)}</div></div>
+      <div class="head"><h3><span class="tbadge t-${p.theme}">${stripEmoji(p.label)}</span></h3><div class="price">¥${p.total.toFixed(1)}</div></div>
       <div class="tag">${p.tagline}</div>
       <ul>${items}</ul>
       <div class="meta">${chips}</div>
@@ -776,15 +1496,40 @@ function renderCheckout() {
 }
 
 /* ---------- 7. 启动 ---------- */
-(function init() {
+function applyBadge() {
   const d = DATA.meta?.snapshotDate ?? "";
-  if (IS_LIVE) {
+  const store = DATA.meta?.storeName ?? "";
+  if (DATA_SOURCE === 'injected') {
     $("dataBadge").classList.remove("sample");
     $("badgeText").textContent = "LIVE · mcp.mcd.cn";
+  } else if (DATA_SOURCE === 'live') {
+    $("dataBadge").classList.add("live");
+    $("badgeText").textContent = `真实门店 · ${store.replace(/^麦当劳/, "").slice(0, 8)}`;
   } else {
     $("badgeText").textContent = `SAMPLE · 快照 ${d}`;
   }
+}
+
+(function init() {
+  applyBadge();
   render();
+
+  // 尝试升级到真实门店快照。失败（file:// 的 CORS、离线、文件缺失）就安静地留在示例数据上，
+  // 不打红字吓用户：示例数据一样能把整个冒险流程走完。
+  if (DATA_SOURCE !== 'injected') {
+    fetch("live-menu.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!json || !Array.isArray(json.categories)) return;
+        DATA = json;
+        DATA_SOURCE = 'live';
+        _menuCache = null; // 菜单换了，预算档位的缓存必须一起失效
+        window.__MCD_ACTIVE_MENU__ = DATA;
+        applyBadge();
+        render();
+      })
+      .catch(() => { /* 静默回落 */ });
+  }
 })();
 </script>
 </body>

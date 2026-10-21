@@ -1,0 +1,36 @@
+{
+  "meta": {
+    "city": "上海",
+    "keyword": "陆家嘴",
+    "fetchedAt": "2026-10-21T04:09:49.953Z"
+  },
+  "stores": [
+    {
+      "storeCode": "1450127",
+      "storeName": "麦当劳上海陆家嘴明珠环餐厅",
+      "address": "世纪大道55号2F-1室",
+      "distance": 75,
+      "open": true,
+      "businessHours": "07:00-23:00",
+      "reservation": true
+    },
+    {
+      "storeCode": "1450579",
+      "storeName": "麦当劳上海正大广场餐厅",
+      "address": "陆家嘴西路168号5F02室商铺",
+      "distance": 268,
+      "open": true,
+      "businessHours": "10:00-22:00",
+      "reservation": true
+    },
+    {
+      "storeCode": "1450512",
+      "storeName": "麦当劳上海陆家嘴星展餐厅",
+      "address": "陆家嘴环路1318号地下一层09室",
+      "distance": 445,
+      "open": true,
+      "businessHours": "07:00-22:00",
+      "reservation": true
+    }
+  ]
+}

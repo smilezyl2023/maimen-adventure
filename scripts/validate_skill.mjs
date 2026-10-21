@@ -7,6 +7,7 @@
  */
 
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 
@@ -155,6 +156,17 @@ for (const p of textFiles) {
   });
 }
 pass.push(`已扫描 ${textFiles.length} 个文案文件`);
+
+/* Demo 引擎同步校验：
+ * Demo 的引擎是由 sync_demo.mjs 从 build_pool.mjs 注入的。如果不同步，
+ * 用户在网页里看到的菜单和命令行跑出来的不一样——这种 bug 最难发现，
+ * 因为两边单独看都对。放进自检里，提交前就能拦住。 */
+try {
+  execFileSync(process.execPath, [join(ROOT, 'scripts/sync_demo.mjs'), '--check'], { stdio: 'pipe' });
+  pass.push('Demo 引擎与 build_pool.mjs 同步');
+} catch {
+  errors.push('Demo 引擎与 build_pool.mjs 不同步 —— 运行 node scripts/sync_demo.mjs');
+}
 
 /* 输出 */
 const line = (s) => console.log(s);

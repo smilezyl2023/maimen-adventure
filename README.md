@@ -49,7 +49,7 @@
   <img src="assets/screenshots/02-boss-plans.png" alt="三张命运菜单" width="72%">
 </p>
 
-<p align="center"><sub>同一份示例菜单、同一组答案（人均 ¥50 · 鸡肉派 · 微辣 · 1 人 · 要饮料）下生成的三份菜单：¥49.5 / ¥45.0 / ¥34.0，热量 1130 / 485 / 620 kcal，主食、配餐、饮品全都不同。</sub></p>
+<p align="center"><sub><b>上方为真实门店菜单</b>（麦当劳上海陆家嘴明珠环餐厅 · 88 个餐品 · 人均 ¥35 · 牛肉派 · 不辣）：¥34.5 / ¥31.5 / ¥31.5，三张卡主食与配餐各不相同，全部预算内。</sub></p>
 
 | 序章 · 麦门召唤 | BOSS · 三扇门 |
 |---|---|
@@ -102,7 +102,7 @@
 把本仓库的 `SKILL.md` 与 `references/`、`assets/`、`scripts/` 一起放入你的 Skill 目录（或直接 clone 本仓库到 Skill 路径）：
 
 ```bash
-git clone https://github.com/<your-name>/maimen-adventure.git
+git clone https://github.com/smilezyl2023/maimen-adventure.git
 ```
 
 然后在 WorkBuddy 里输入下面任意一句即可触发 👇
@@ -152,7 +152,7 @@ AI  ：三扇门同时打开。
          · 麦辣鸡腿堡 ×1    ¥22.5
          · 薯条(大) ×1      ¥15.0
          · 可口可乐(大) ×1  ¥12.0
-         约 1130 kcal ｜ ⚠️ 略超预算 ¥4.5
+         约 1130 kcal ｜ 预算内
 
       🌿 清爽型 —— 想吃，但不想有负担         ¥45.0
          · 板烧鸡腿堡 ×1    ¥22.0
@@ -183,9 +183,15 @@ AI  ：🎉 冒险完成。订单号 20261xxx，支付链接已生成：
       支付请前往官方页面完成——麦门不碰你的钱包，只负责帮你选对。
 ```
 
-> 这段可以直接复现：`node scripts/build_pool.mjs --card --answers '{"budget":45,"flavor":"chicken","spice":"nofilter","people":1,"wantDrink":true,"wantDessert":false}'`
+> 这段可以直接复现：
+> ```bash
+> node scripts/build_pool.mjs --card --menu assets/sample-menu.json \
+>   --answers '{"budget":50,"flavor":"chicken","spice":"mild","hunger":"normal","people":1,"wantDrink":true,"wantDessert":false,"careCalories":false}'
+> ```
 >
 > 同样的预算、同样的答案，三张卡给出了三种完全不同的人生：辣的 + 大薯 + 大可乐（1130 kcal）、不辣 + 沙拉 + 美式（485 kcal）、脆鸡堡 + 玉米杯 + 中可乐（¥34）。这就是"三套目标函数"和"一套算法取 Top3"的区别。
+>
+> 三张卡**全部落在预算内**这件事本身是个约束，不是巧合：排序的第一顺位永远是"要不要用户多掏钱"，主题分和完整度都得往后站。
 
 ---
 
@@ -249,13 +255,19 @@ maimen-adventure/
 │   ├── scoring-rules.md        # 打分维度与权重
 │   └── mcp-calls.md            # 各 Tool 参数、错误码、降级
 ├── assets/
-│   ├── demo.html               # 单网页 Demo（可独立运行）
+│   ├── demo.html               # 单网页 Demo（引擎由 sync_demo.mjs 注入，勿手改引擎段）
 │   ├── sample-menu.json        # 示例菜单快照
+│   ├── live-menu.json          # 真实门店菜单快照（mcp.mcd.cn 实拉）
+│   ├── live-stores.json        # 真实门店列表
 │   ├── banner.svg
 │   └── screenshots/
 └── scripts/
-    ├── build_pool.mjs          # 组餐引擎（纯函数、零依赖）
-    ├── test_engine.mjs         # 引擎回归测试（108 项断言，全部来自踩过的坑）
+    ├── build_pool.mjs          # 组餐引擎（纯函数、零依赖）——唯一的一份引擎
+    ├── mcp_adapter.mjs         # MCP 返回 → 引擎入参的适配层
+    ├── nutrition.mjs           # 营养库解析（热量别名映射）
+    ├── sync_live.mjs           # 从 mcp.mcd.cn 拉真实菜单，落盘成 live-*.json
+    ├── sync_demo.mjs           # 把引擎注入 demo.html（--check 用于自检）
+    ├── test_engine.mjs         # 引擎回归测试（166 项断言，全部来自踩过的坑）
     └── validate_skill.mjs      # 项目自检（合规红线扫描）
 ```
 
@@ -272,15 +284,32 @@ node scripts/build_pool.mjs --menu assets/sample-menu.json \
 # 引擎回归测试（预算档位 / 偏好硬约束 / 三卡差异 / 热量 / 售罄 / 空菜单）
 node scripts/test_engine.mjs
 
-# 项目自检（必需文件 / Token 泄漏 / 合规红线）
+# 真实门店菜单
+node scripts/build_pool.mjs --card --menu assets/live-menu.json \
+  --answers '{"budget":60,"flavor":"chicken","spice":"nofilter","people":1,"wantDrink":true,"wantDessert":false}'
+
+# 项目自检（必需文件 / Token 泄漏 / 合规红线 / Demo 引擎同步）
 node scripts/validate_skill.mjs
+node scripts/sync_demo.mjs --check
 ```
 
 ---
 
 ## 网页 Demo
 
-[`assets/demo.html`](assets/demo.html) 是一个**单文件、零依赖、零网络请求**的完整冒险界面，双击即可打开。
+[`assets/demo.html`](assets/demo.html) 是一个**单文件、零依赖**的完整冒险界面，双击即可打开。
+
+数据源按三级回落，任何打开方式都能玩：
+
+| 优先级 | 来源 | 触发条件 | 徽章显示 |
+|---|---|---|---|
+| 1 | `window.__MCD_DATA__` | 宿主页面注入实时菜单 | `LIVE · mcp.mcd.cn` |
+| 2 | `assets/live-menu.json` | 同目录能 `fetch` 到（走 HTTP 时成立） | `真实门店 · 陆家嘴明珠环` |
+| 3 | 内置 `SAMPLE` | 双击打开（`file://` 下 CORS 拦截第 2 级） | `SAMPLE · 快照 2026-10-21` |
+
+> 想在线看真实门店数据：`python3 -m http.server 8000`，然后打开 `http://localhost:8000/assets/demo.html`。
+
+**关于引擎的同步。** Demo 的引擎段不是手抄的，而是由 `scripts/sync_demo.mjs` 从 `scripts/build_pool.mjs` 整段注入（`ENGINE:BEGIN/END` 标记之间）。手工同步试过两次，两次都在一周内分叉——`isCombo` 识别、配餐保底、二件套生成、排序档位、终局校正、候选组排除，六处漏改，导致 Demo 和命令行给出不同的菜单。现在引擎只有一份源码，`node scripts/sync_demo.mjs --check` 可以直接判定是否同步。
 
 ### 把 Demo 切成实时菜单
 
